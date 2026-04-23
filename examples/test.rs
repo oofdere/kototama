@@ -15,7 +15,11 @@ fn main() {
         println!("Model: {}", desc_str);
     }
 
-    let ctx = Context::new(&model, ContextParams::new());
+    let mut params = ContextParams::new();
+    params.type_k = llama_sys::ggml_type::GGML_TYPE_Q4_0;
+    params.type_v = llama_sys::ggml_type::GGML_TYPE_Q4_0;
+    let ctx = Context::new(&model, params);
+    
 
     println!("Context initialized");
 
