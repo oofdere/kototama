@@ -1,10 +1,9 @@
-
-use std::sync::atomic::{AtomicUsize, Ordering};
 use llama_sys::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static BACKEND_HANDLES: AtomicUsize = AtomicUsize::new(0);
 
-pub struct Backend ();
+pub struct Backend();
 
 impl Backend {
     pub fn acquire() -> Backend {
@@ -30,7 +29,11 @@ impl Drop for Backend {
 }
 
 #[allow(non_upper_case_globals)]
-pub extern "C" fn llama_log_callback(level: ggml_log_level, msg: *const std::os::raw::c_char, _user_data: *mut std::os::raw::c_void) {
+pub extern "C" fn llama_log_callback(
+    level: ggml_log_level,
+    msg: *const std::os::raw::c_char,
+    _user_data: *mut std::os::raw::c_void,
+) {
     use std::ffi::CStr;
     let msg_str = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     match level {
@@ -39,7 +42,6 @@ pub extern "C" fn llama_log_callback(level: ggml_log_level, msg: *const std::os:
         ggml_log_level_GGML_LOG_LEVEL_INFO => print!("[INFO] {}", msg_str),
         _ => print!("{}", msg_str),
     }
-    
 }
 
 #[cfg(test)]

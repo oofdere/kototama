@@ -8,18 +8,13 @@ fn main() {
         ModelParams::new(),
     );
 
-    unsafe {
-        let mut desc = [0i8; 512];
-        llama_sys::llama_model_desc(*model, desc.as_mut_ptr(), desc.len());
-        let desc_str = std::ffi::CStr::from_ptr(desc.as_ptr()).to_string_lossy();
-        println!("Model: {}", desc_str);
-    }
+    println!("Model: {}", model.desc());
+    println!("Chat template: {:?}", model.chat_template(None));
 
     let mut params = ContextParams::new();
     params.type_k = llama_sys::ggml_type::GGML_TYPE_Q4_0;
     params.type_v = llama_sys::ggml_type::GGML_TYPE_Q4_0;
     let ctx = Context::new(&model, params);
-    
 
     println!("Context initialized");
 
@@ -40,7 +35,7 @@ fn main() {
     let sampler = unsafe { llama_sys::llama_sampler_init_greedy() };
 
     // Generate 10 tokens
-    for _ in 0..10 {
+    for _ in 0..1000 {
         let token = unsafe { llama_sys::llama_sampler_sample(sampler, *ctx, -1) };
         let mut buf = [0u8; 64];
         let n = unsafe {

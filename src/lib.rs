@@ -6,8 +6,6 @@
 //! - Type safety where possible
 //! - Comprehensive documentation
 
-use llama_sys::*;
-
 mod model;
 pub use model::*;
 
@@ -16,5 +14,3 @@ pub use backend::*;
 
 mod context;
 pub use context::*;
-
-
