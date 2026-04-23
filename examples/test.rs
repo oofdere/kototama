@@ -1,12 +1,8 @@
-use std::ffi::CString;
 use std::io::Write;
 
 use rusty_llama::*;
 
 fn main() {
-    let _backend = Backend::acquire();
-    println!("Backend initialized");
-
     let model = Model::load_from_file(
         "/Users/teo/Downloads/gemma-3-270m-it-Q8_0.gguf",
         ModelParams::new(),
@@ -19,30 +15,19 @@ fn main() {
         println!("Model: {}", desc_str);
     }
 
-    let vocab = unsafe { llama_sys::llama_model_get_vocab(*model) };
     let ctx = Context::new(&model, ContextParams::new());
 
     println!("Context initialized");
 
     // Tokenize prompt
     let prompt = "The future of AI is";
-    let mut tokens = vec![0i32; 512];
-    let n_tokens = unsafe {
-        llama_sys::llama_tokenize(
-            vocab,
-            prompt.as_ptr() as *const i8,
-            prompt.len() as i32,
-            tokens.as_mut_ptr(),
-            tokens.len() as i32,
-            true,
-            true,
-        )
-    };
+    let mut tokens = model.tokenize(prompt);
+    let n_tokens = tokens.len();
 
     println!("Tokens: {}", n_tokens);
 
     // Create batch
-    let batch = unsafe { llama_sys::llama_batch_get_one(tokens.as_mut_ptr(), n_tokens) };
+    let batch = unsafe { llama_sys::llama_batch_get_one(tokens.as_mut_ptr(), n_tokens as i32) };
 
     // Decode prompt
     unsafe { llama_sys::llama_decode(*ctx, batch) };
@@ -56,7 +41,7 @@ fn main() {
         let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
-                vocab,
+                model.vocab,
                 token,
                 buf.as_mut_ptr() as *mut i8,
                 buf.len() as i32,

@@ -8,9 +8,6 @@
 
 use llama_sys::*;
 
-mod params;
-pub use params::*;
-
 mod model;
 pub use model::*;
 
