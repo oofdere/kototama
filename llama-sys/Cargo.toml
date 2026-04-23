@@ -1,0 +1,13 @@
+[package]
+name = "llama-sys"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+links = "llama"
+build = "build.rs"
+
+[build-dependencies]
+bindgen = "0.71"
+cc = "1.2"
+
+[dependencies]

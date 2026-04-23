@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "llama-sys",
+]
+resolver = "2"
+
+[package]
+name = "rusty-llama"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+llama-sys = { path = "llama-sys" }
