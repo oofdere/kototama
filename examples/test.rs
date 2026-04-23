@@ -4,26 +4,23 @@ use std::io::Write;
 use rusty_llama::*;
 
 fn main() {
-    
-        let _backend = Backend::acquire();
-        println!("Backend initialized");
+    let _backend = Backend::acquire();
+    println!("Backend initialized");
 
-        let model = Model::load_from_file(
-                "/Users/teo/Downloads/gemma-3-270m-it-Q8_0.gguf",
-                ModelParams::new());
+    let model = Model::load_from_file(
+        "/Users/teo/Downloads/gemma-3-270m-it-Q8_0.gguf",
+        ModelParams::new(),
+    );
 
-        unsafe {
-            let mut desc = [0i8; 512];
-            llama_sys::llama_model_desc(*model, desc.as_mut_ptr(), desc.len());
-            let desc_str = std::ffi::CStr::from_ptr(desc.as_ptr()).to_string_lossy();
-            println!("Model: {}", desc_str);
-        }
-    
+    unsafe {
+        let mut desc = [0i8; 512];
+        llama_sys::llama_model_desc(*model, desc.as_mut_ptr(), desc.len());
+        let desc_str = std::ffi::CStr::from_ptr(desc.as_ptr()).to_string_lossy();
+        println!("Model: {}", desc_str);
+    }
 
     let vocab = unsafe { llama_sys::llama_model_get_vocab(*model) };
-    let ctx = unsafe {
-        llama_sys::llama_init_from_model(*model, llama_sys::llama_context_default_params())
-    };
+    let ctx = Context::new(&model, ContextParams::new());
 
     println!("Context initialized");
 
@@ -48,14 +45,14 @@ fn main() {
     let batch = unsafe { llama_sys::llama_batch_get_one(tokens.as_mut_ptr(), n_tokens) };
 
     // Decode prompt
-    unsafe { llama_sys::llama_decode(ctx, batch) };
+    unsafe { llama_sys::llama_decode(*ctx, batch) };
 
     // Create sampler
     let sampler = unsafe { llama_sys::llama_sampler_init_greedy() };
 
     // Generate 10 tokens
     for _ in 0..10 {
-        let token = unsafe { llama_sys::llama_sampler_sample(sampler, ctx, -1) };
+        let token = unsafe { llama_sys::llama_sampler_sample(sampler, *ctx, -1) };
         let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
@@ -72,7 +69,7 @@ fn main() {
         std::io::stdout().flush().ok();
 
         let batch = unsafe { llama_sys::llama_batch_get_one(&token as *const i32 as *mut i32, 1) };
-        unsafe { llama_sys::llama_decode(ctx, batch) };
+        unsafe { llama_sys::llama_decode(*ctx, batch) };
     }
 
     println!("Done!");
