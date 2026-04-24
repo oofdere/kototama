@@ -37,9 +37,9 @@ pub extern "C" fn llama_log_callback(
     use std::ffi::CStr;
     let msg_str = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     match level {
-        ggml_log_level_GGML_LOG_LEVEL_ERROR => eprint!("[ERROR] {}", msg_str),
-        ggml_log_level_GGML_LOG_LEVEL_WARN => eprint!("[WARN] {}", msg_str),
-        ggml_log_level_GGML_LOG_LEVEL_INFO => print!("[INFO] {}", msg_str),
+        ggml_log_level::GGML_LOG_LEVEL_ERROR => eprint!("[ERROR] {}", msg_str),
+        ggml_log_level::GGML_LOG_LEVEL_WARN => eprint!("[WARN] {}", msg_str),
+        ggml_log_level::GGML_LOG_LEVEL_INFO => print!("[INFO] {}", msg_str),
         _ => print!("{}", msg_str),
     }
 }

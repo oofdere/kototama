@@ -14,3 +14,9 @@ pub use backend::*;
 
 mod context;
 pub use context::*;
+
+mod sampler;
+pub use sampler::*;
+
+mod sampler_chain;
+pub use sampler_chain::*;

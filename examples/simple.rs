@@ -93,15 +93,13 @@ fn main() {
     // enable performance counters
     ctx_params.no_perf = false;
 
-    let ctx = Context::new(&model, ctx_params);
+    let mut ctx = Context::new(&model, ctx_params);
     println!("Context initialized");
 
     // Initialize the sampler
-    let mut sparams = unsafe { llama_sys::llama_sampler_chain_default_params() };
+    let mut sparams = SamplerChainParams::new();
     sparams.no_perf = false;
-    let sampler = unsafe { llama_sys::llama_sampler_chain_init(sparams) };
-
-    unsafe { llama_sys::llama_sampler_chain_add(sampler, llama_sys::llama_sampler_init_greedy()) };
+    let sampler = SamplerChain::new().add(Sampler::greedy());
 
     // Print the prompt token-by-token
     for token in &prompt_tokens {
@@ -118,7 +116,6 @@ fn main() {
     if model.has_encoder() {
         if ctx.encode(batch) != 0 {
             eprintln!("failed to eval");
-            unsafe { llama_sys::llama_sampler_free(sampler) };
             std::process::exit(1);
         }
 
@@ -145,14 +142,13 @@ fn main() {
         // Evaluate the current batch with the transformer model
         if ctx.decode(batch) != 0 {
             eprintln!("failed to eval, return code 1");
-            unsafe { llama_sys::llama_sampler_free(sampler) };
             std::process::exit(1);
         }
 
         n_pos += batch.n_tokens;
 
         // Sample the next token
-        new_token_id = unsafe { llama_sys::llama_sampler_sample(sampler, *ctx, -1) };
+        new_token_id = ctx.sample(&sampler, -1);
 
         // Is it an end of generation?
         if model.is_eog(new_token_id) {
@@ -182,9 +178,7 @@ fn main() {
     );
 
     eprintln!();
-    unsafe { llama_sys::llama_perf_sampler_print(sampler) };
+    unsafe { llama_sys::llama_perf_sampler_print(*sampler) };
     unsafe { llama_sys::llama_perf_context_print(*ctx) };
     eprintln!();
-
-    unsafe { llama_sys::llama_sampler_free(sampler) };
 }

@@ -56,12 +56,9 @@ impl Model {
 
     /// gets the chat template of the specified name, or the default if None
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
-        let str = unsafe {
-            llama_model_chat_template(
-                self.model,
-                name.map(|s| s.as_ptr() as *const c_char).unwrap_or(null()),
-            )
-        };
+        let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
+        let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
+        let str = unsafe { llama_model_chat_template(self.model, name_ptr) };
         if str.is_null() {
             None
         } else {
@@ -81,6 +78,11 @@ impl Model {
         // throw it in a string
         let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
         cstr.to_string_lossy().to_string()
+    }
+
+    /// Returns the vocabulary size
+    pub fn n_vocab(&self) -> usize {
+        unsafe { llama_vocab_n_tokens(self.vocab) as usize }
     }
 
     /// Returns true if the model contains a decoder that requires llama_decode() call

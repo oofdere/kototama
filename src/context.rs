@@ -1,7 +1,7 @@
 use llama_sys::*;
 use std::ops::{Deref, DerefMut};
 
-use crate::Model;
+use crate::{LlamaSamplerPtr, Model};
 
 pub struct ContextParams(llama_context_params);
 
@@ -55,6 +55,16 @@ impl<'a> Context<'a> {
     /// < 0 - error. the memory state is restored to the state before this call
     pub fn decode(&self, batch: llama_sys::llama_batch) -> i32 {
         unsafe { llama_decode(**self, batch) }
+    }
+
+    pub fn get_logits_ith(&self, idx: i32, n_vocab: usize) -> &[f32] {
+        let ptr = unsafe { llama_get_logits_ith(**self, idx) };
+        unsafe { std::slice::from_raw_parts(ptr, n_vocab) }
+    }
+
+    /// Sample and accept a token from the idx-th output of the last evaluation
+    pub fn sample<S: LlamaSamplerPtr>(&mut self, sampler: &S, idx: i32) -> i32 {
+        unsafe { llama_sys::llama_sampler_sample(sampler.as_ptr(), **self, idx) }
     }
 }
 
