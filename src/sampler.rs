@@ -30,11 +30,11 @@ impl DerefMut for Sampler {
     }
 }
 
-pub trait LlamaSamplerPtr {
+pub trait LlamaSampler {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler;
 }
 
-impl LlamaSamplerPtr for Sampler {
+impl LlamaSampler for Sampler {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler {
         self.0
     }

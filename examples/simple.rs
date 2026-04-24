@@ -1,73 +1,33 @@
 use rusty_llama::*;
-use std::env;
 use std::io::Write;
+use clap::{Parser};
 
-fn print_usage(program_name: &str) {
-    eprintln!("\nexample usage:");
-    eprintln!(
-        "\n    {} -m model.gguf [-n n_predict] [-ngl n_gpu_layers] [prompt]\n",
-        program_name
-    );
-    eprintln!();
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to the model file
+    #[arg(short = 'm', long)]
+    model: String,
+
+    /// Number of tokens to predict
+    #[arg(short = 'n', long, default_value_t = 32)]
+    n_predict: i32,
+
+    /// Number of GPU layers
+    #[arg(long = "ngl", default_value_t = 99)]
+    n_gpu_layers: i32,
+
+    /// Prompt text
+    #[arg(default_value = "Hello my name is")]
+    prompt: String,
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    let mut model_path = String::new();
-    let mut prompt = String::from("Hello my name is");
-    let mut ngl: i32 = 99;
-    let mut n_predict: i32 = 32;
-
-    let mut i = 1;
-    while i < args.len() {
-        if args[i] == "-m" {
-            if i + 1 < args.len() {
-                model_path = args[i + 1].clone();
-                i += 2;
-            } else {
-                print_usage(&args[0]);
-                std::process::exit(1);
-            }
-        } else if args[i] == "-n" {
-            if i + 1 < args.len() {
-                n_predict = args[i + 1].parse().unwrap_or_else(|_| {
-                    print_usage(&args[0]);
-                    std::process::exit(1);
-                });
-                i += 2;
-            } else {
-                print_usage(&args[0]);
-                std::process::exit(1);
-            }
-        } else if args[i] == "-ngl" {
-            if i + 1 < args.len() {
-                ngl = args[i + 1].parse().unwrap_or_else(|_| {
-                    print_usage(&args[0]);
-                    std::process::exit(1);
-                });
-                i += 2;
-            } else {
-                print_usage(&args[0]);
-                std::process::exit(1);
-            }
-        } else {
-            // Prompt starts here
-            prompt = args[i].clone();
-            i += 1;
-            while i < args.len() {
-                prompt.push(' ');
-                prompt.push_str(&args[i]);
-                i += 1;
-            }
-            break;
-        }
-    }
-
-    if model_path.is_empty() {
-        print_usage(&args[0]);
-        std::process::exit(1);
-    }
+    let args = Args::parse();
+    let model_path = args.model;
+    let prompt = args.prompt;
+    let ngl = args.n_gpu_layers;
+    let n_predict = args.n_predict;
 
     // backends get loaded and freed automatically
 
@@ -177,8 +137,6 @@ fn main() {
         n_decode as f64 / ((t_main_end - t_main_start) as f64 / 1_000_000.0)
     );
 
-    eprintln!();
-    unsafe { llama_sys::llama_perf_sampler_print(*sampler) };
-    unsafe { llama_sys::llama_perf_context_print(*ctx) };
-    eprintln!();
+    println!("{:?}", sampler.perf());
+    println!("{:?}", ctx.perf());
 }

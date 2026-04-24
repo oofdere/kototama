@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::{LlamaSamplerPtr, Sampler};
+use crate::{LlamaSampler, Sampler};
 
 #[repr(transparent)]
 pub struct SamplerChainParams(llama_sys::llama_sampler_chain_params);
@@ -39,9 +39,13 @@ impl SamplerChain {
         }
         self
     }
+
+    pub fn perf(&self) -> llama_sys::llama_perf_sampler_data {
+        unsafe { llama_sys::llama_perf_sampler(self.0) }
+    }
 }
 
-impl LlamaSamplerPtr for SamplerChain {
+impl LlamaSampler for SamplerChain {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler {
         self.0
     }

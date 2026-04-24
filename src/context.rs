@@ -1,7 +1,7 @@
 use llama_sys::*;
 use std::ops::{Deref, DerefMut};
 
-use crate::{LlamaSamplerPtr, Model};
+use crate::{LlamaSampler, Model};
 
 pub struct ContextParams(llama_context_params);
 
@@ -63,8 +63,12 @@ impl<'a> Context<'a> {
     }
 
     /// Sample and accept a token from the idx-th output of the last evaluation
-    pub fn sample<S: LlamaSamplerPtr>(&mut self, sampler: &S, idx: i32) -> i32 {
+    pub fn sample<S: LlamaSampler>(&mut self, sampler: &S, idx: i32) -> i32 {
         unsafe { llama_sys::llama_sampler_sample(sampler.as_ptr(), **self, idx) }
+    }
+
+    pub fn perf(&self) -> llama_sys::llama_perf_context_data {
+        unsafe { llama_sys::llama_perf_context(**self) }
     }
 }
 
