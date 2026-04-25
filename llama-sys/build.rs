@@ -1,105 +1,57 @@
-use std::env;
-use std::path::PathBuf;
-use std::process::Command;
+use cmake::Config;
+use std::{env, path::PathBuf};
 
 fn main() {
-    let llama_cpp = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("llama.cpp");
-
-    let include_path = llama_cpp.join("include");
-    let ggml_path = llama_cpp.join("ggml/include");
-
-    // Build llama.cpp if not already built
-    let profile = env::var("PROFILE").unwrap_or_default();
-    let build_dir = llama_cpp.join(format!("build-{}", profile));
-    let llama_lib = build_dir.join("src/libllama.a");
-    if !llama_lib.exists() {
-        std::fs::create_dir_all(&build_dir).unwrap();
-
-        // Configure with CMake
-        let mut cmake_args = vec![
-            "..",
-            "-DLLAMA_BUILD_TESTS=OFF",
-            "-DLLAMA_BUILD_EXAMPLES=OFF",
-            "-DBUILD_SHARED_LIBS=OFF",
-            "-DLLAMA_METAL=ON",
-        ];
-
-        // Use Release build type only for release profile
-        if profile == "release" {
-            cmake_args.push("-DCMAKE_BUILD_TYPE=Release");
-        }
-
-        let status = Command::new("cmake")
-            .current_dir(&build_dir)
-            .args(&cmake_args)
-            .status()
-            .expect("Failed to run cmake. Make sure cmake is installed.");
-
-        if !status.success() {
-            panic!("cmake configuration failed");
-        }
-
-        // Build
-        let status = Command::new("cmake")
-            .current_dir(&build_dir)
-            .args(["--build", ".", "--", "-j"])
-            .status()
-            .expect("Failed to build llama.cpp");
-
-        if !status.success() {
-            panic!("llama.cpp build failed");
-        }
+    let mut config = Config::new("llama.cpp");
+    
+    // Core settings
+    config
+        .define("BUILD_SHARED_LIBS", "OFF") // static build
+        .define("LLAMA_BUILD_TESTS", "OFF")
+        .define("LLAMA_BUILD_EXAMPLES", "OFF")
+        .define("GGML_STATIC", "ON")
+        .define("GGML_PERF", "OFF")
+        .define("GGML_LTO", "ON");
+    
+    #[cfg(feature = "native")]
+    {
+        config.define("GGML_NATIVE", "ON");
     }
 
-    // Link the static libraries
-    println!("cargo:rustc-link-search=native={}", build_dir.display());
-    println!("cargo:rustc-link-search=native={}/src", build_dir.display());
-    println!(
-        "cargo:rustc-link-search=native={}/ggml/src",
-        build_dir.display()
-    );
-    println!(
-        "cargo:rustc-link-search=native={}/ggml/src/ggml-cpu",
-        build_dir.display()
-    );
-    println!(
-        "cargo:rustc-link-search=native={}/ggml/src/ggml-metal",
-        build_dir.display()
-    );
-    println!(
-        "cargo:rustc-link-search=native={}/ggml/src/ggml-blas",
-        build_dir.display()
-    );
-    println!("cargo:rustc-link-lib=static=llama");
-    println!("cargo:rustc-link-lib=static=ggml");
-    println!("cargo:rustc-link-lib=static=ggml-base");
-    println!("cargo:rustc-link-lib=static=ggml-cpu");
-    println!("cargo:rustc-link-lib=static=ggml-metal");
-    println!("cargo:rustc-link-lib=static=ggml-blas");
-
-    // Platform-specific libraries
-    if cfg!(target_os = "macos") {
-        println!("cargo:rustc-link-lib=framework=Accelerate");
+    #[cfg(all(target_os = "macos"))]
+    {
+        config.define("GGML_METAL", "ON");
+        config.define("GGML_METAL_NDEBUG", "ON");
         println!("cargo:rustc-link-lib=framework=Metal");
         println!("cargo:rustc-link-lib=framework=Foundation");
-        println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
-        println!("cargo:rustc-link-lib=c++");
+        println!("cargo:rustc-link-lib=framework=Accelerate");
     }
 
-    if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-lib=pthread");
-        println!("cargo:rustc-link-lib=dl");
-        println!("cargo:rustc-link-lib=m");
+    let dst = config.build();
+    
+    // Link the libraries (order matters - dependencies after dependents)
+    println!("cargo:rustc-link-search=native={}/lib", dst.display());
+    println!("cargo:rustc-link-lib=static=llama");
+    println!("cargo:rustc-link-lib=static=llama-common");
+    println!("cargo:rustc-link-lib=static=ggml");
+    println!("cargo:rustc-link-lib=static=ggml-cpu");
+    println!("cargo:rustc-link-lib=static=ggml-base");
+    println!("cargo:rustc-link-lib=c++");
+    
+    #[cfg(all(target_os = "macos"))]
+    {
+        println!("cargo:rustc-link-lib=static=ggml-metal");
+        println!("cargo:rustc-link-lib=static=ggml-blas");
     }
+    
+    // Rebuild triggers
+    println!("cargo:rerun-if-changed=llama.cpp/");
 
-    // Tell cargo to invalidate the built crate whenever the header changes
-    println!("cargo:rerun-if-changed={}/llama.h", include_path.display());
-
-    // Generate bindings with all necessary includes
+        // Generate bindings with all necessary includes
     let bindings = bindgen::Builder::default()
-        .header(format!("{}/llama.h", include_path.display()))
-        .clang_arg(format!("-I{}", include_path.display()))
-        .clang_arg(format!("-I{}", ggml_path.display()))
+        .header("llama.cpp/include/llama.h")
+        .clang_arg("-Illama.cpp/include")
+        .clang_arg("-Illama.cpp/ggml/include")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .derive_default(true)
         .derive_debug(true)

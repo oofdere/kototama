@@ -9,5 +9,8 @@ build = "build.rs"
 [build-dependencies]
 bindgen = "0.71"
 cc = "1.2"
+cmake = "0.1.58"
 
-[dependencies]
+[features]
+default = []
+native = []
