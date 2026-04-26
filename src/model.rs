@@ -80,53 +80,46 @@ impl Model {
         cstr.to_string_lossy().to_string()
     }
 
-    /// Returns the vocabulary size
-    pub fn n_vocab(&self) -> usize {
-        unsafe { llama_vocab_n_tokens(self.vocab) as usize }
-    }
-
     /// Returns true if the model contains a decoder that requires llama_decode() call
+    #[inline]
     pub fn has_decoder(&self) -> bool {
         unsafe { llama_model_has_decoder(self.model) }
     }
 
     /// For encoder-decoder models, this function returns id of the token that must be provided to the decoder to start generating output sequence. For other models, it returns -1.
-    pub fn decoder_start_token(&self) -> i32 {
-        unsafe { llama_model_decoder_start_token(self.model) }
+    #[inline]
+    pub fn decoder_start_token(&self) -> Option<llama_token> {
+        let token = unsafe { llama_model_decoder_start_token(self.model) };
+        if token == LLAMA_TOKEN_NULL { None } else { Some(token) }
     }
 
     /// Returns true if the model contains an encoder that requires llama_encode() call
+    #[inline]
     pub fn has_encoder(&self) -> bool {
         unsafe { llama_model_has_encoder(self.model) }
     }
 
     /// Returns true if the model is diffusion-based (like LLaDA, Dream, etc.)
+    #[inline]
     pub fn is_diffusion(&self) -> bool {
         unsafe { llama_model_is_diffusion(self.model) }
     }
 
     /// Returns true if the model is hybrid (like Jamba, Granite, etc.)
+    #[inline]
     pub fn is_hybrid(&self) -> bool {
         unsafe { llama_model_is_hybrid(self.model) }
     }
 
     /// Returns true if the model is recurrent (like Mamba, RWKV, etc.)
+    #[inline]
     pub fn is_recurrent(&self) -> bool {
         unsafe { llama_model_is_recurrent(self.model) }
     }
 
-    /// Returns the beginning‑of‑sentence token for a given vocabulary.
-    pub fn bos_token(&self) -> i32 {
-        unsafe { llama_vocab_bos(self.vocab) }
-    }
-
-    pub fn is_eog(&self, token: i32) -> bool {
-        unsafe { llama_vocab_is_eog(self.vocab, token) }
-    }
-
     /// Convert a token to its text representation
     pub fn token_to_piece(&self, token: i32) -> String {
-        let mut buf = [0u8; 64];
+        let mut buf = [0u8; 64]; // look into setting this dynamically from the model's vocab
         let n = unsafe {
             llama_sys::llama_token_to_piece(
                 self.vocab,

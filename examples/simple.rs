@@ -79,12 +79,7 @@ fn main() {
             std::process::exit(1);
         }
 
-        let decoder_start_token_id = model.decoder_start_token();
-        let decoder_start_token_id = if decoder_start_token_id == -1 {
-            model.bos_token()
-        } else {
-            decoder_start_token_id
-        };
+        let decoder_start_token_id = model.decoder_start_token().unwrap_or(model.bos_token().unwrap());
 
         batch = unsafe {
             llama_sys::llama_batch_get_one((&decoder_start_token_id) as *const i32 as *mut i32, 1)

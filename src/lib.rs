@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 //! rusty-llama - Low-level but safe Rust bindings for llama.cpp
 //!
 //! This crate provides thin, safe wrappers around the llama.cpp C API.
@@ -20,3 +22,6 @@ pub use sampler::*;
 
 mod sampler_chain;
 pub use sampler_chain::*;
+
+mod vocab;
+pub use vocab::*;
