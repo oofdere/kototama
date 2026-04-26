@@ -191,4 +191,10 @@ impl LlamaSampler for Sampler {
     }
 }
 
+impl Clone for Sampler {
+    fn clone(&self) -> Self {
+        Self(unsafe { llama_sys::llama_sampler_clone(self.0) })
+    }
+}
+
 // Shorthand for: const auto * logits = llama_get_logits_ith(ctx, idx); llama_token_data_array cur_p = { ... init from logits ... }; llama_sampler_apply(smpl, &cur_p); auto token = cur_p.datacur_p.selected.id; llama_sampler_accept(smpl, token); return token; Returns the sampled token

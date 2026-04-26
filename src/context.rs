@@ -3,6 +3,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{LlamaSampler, Model};
 
+#[repr(transparent)]
 pub struct ContextParams(llama_context_params);
 
 // todo builder pattern
