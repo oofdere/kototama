@@ -41,17 +41,23 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn load_from_file(path: &str, params: ModelParams) -> Self {
+    pub fn load_from_file(path: &str, params: ModelParams) -> Result<Self, ()> {
         // TODO: handle errors (null return, path not exist, etc.)
         let _backend = Backend::acquire();
-        let path = std::ffi::CString::new(path).unwrap();
+        let path = std::ffi::CString::new(path).map_err(|_| ())?;
         let model = unsafe { llama_model_load_from_file(path.as_ptr(), params.into()) };
+
+        if model.is_null() {
+            return Err(());
+        }
+
         let vocab = unsafe { llama_model_get_vocab(model) };
-        Self {
+
+        Ok(Self {
             model,
             vocab,
             _backend,
-        }
+        })
     }
 
     /// gets the chat template of the specified name, or the default if None
@@ -90,7 +96,11 @@ impl Model {
     #[inline]
     pub fn decoder_start_token(&self) -> Option<llama_token> {
         let token = unsafe { llama_model_decoder_start_token(self.model) };
-        if token == LLAMA_TOKEN_NULL { None } else { Some(token) }
+        if token == LLAMA_TOKEN_NULL {
+            None
+        } else {
+            Some(token)
+        }
     }
 
     /// Returns true if the model contains an encoder that requires llama_encode() call
@@ -118,7 +128,7 @@ impl Model {
     }
 
     /// Convert a token to its text representation
-    pub fn token_to_piece(&self, token: i32) -> String {
+    pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
         let mut buf = [0u8; 64]; // look into setting this dynamically from the model's vocab
         let n = unsafe {
             llama_sys::llama_token_to_piece(
@@ -130,13 +140,33 @@ impl Model {
                 true,
             )
         };
-        String::from_utf8_lossy(&buf[..n as usize]).to_string()
+        if n < 0 {
+            return Err(());
+        }
+        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
     }
 
     /// tokenize text
-    pub fn tokenize(&self, text: &str) -> Vec<i32> {
-        // TODO: handle cases where the buffer is too small
-        let mut tokens = vec![0i32; text.len()]; // look into using smallvec/stack array
+    /// @details Convert the provided text into tokens. 
+    /// 
+    /// @param tokens The tokens pointer must be large enough to hold the resulting tokens. 
+    /// @return Returns the number of tokens on success, no more than n_tokens_max 
+    /// @return Returns a negative number on failure - the number of tokens that would have been returned 
+    /// @return Returns INT32_MIN on overflow (e.g., tokenization result size exceeds int32_t limit) 
+    /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so. 
+    /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
+    pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {        let len = -unsafe {
+            llama_sys::llama_tokenize(
+                self.vocab,
+                text.as_ptr() as *const i8,
+                text.len() as i32,
+                std::ptr::null_mut(),
+                0,
+                add_special,
+                parse_special,
+            )
+        };
+        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
@@ -144,8 +174,8 @@ impl Model {
                 text.len() as i32,
                 tokens.as_mut_ptr(),
                 tokens.len() as i32, // is this needed it's a vec
-                true,
-                true,
+                add_special,
+                parse_special,
             )
         };
         tokens.truncate(n_tokens as usize);

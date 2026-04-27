@@ -15,5 +15,3 @@
 #![allow(rustdoc::bare_urls)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-
-pub mod vocab;

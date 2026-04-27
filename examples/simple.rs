@@ -1,6 +1,6 @@
+use clap::Parser;
 use rusty_llama::*;
 use std::io::Write;
-use clap::{Parser};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -35,7 +35,7 @@ fn main() {
     let mut model_params = ModelParams::new();
     model_params.n_gpu_layers = ngl;
 
-    let model = Model::load_from_file(&model_path, model_params); // ! THIS MIGHT RETURN NULL AND EXPLODE
+    let model = Model::load_from_file(&model_path, model_params).expect("Failed to load model");
     println!("Model: {}", model.desc());
 
     let _vocab = model.vocab; // vocab is already in model struct and gets used automatically when needed
@@ -53,17 +53,17 @@ fn main() {
     // enable performance counters
     ctx_params.no_perf = false;
 
-    let mut ctx = Context::new(&model, ctx_params);
+    let mut ctx = Context::new(&model, ctx_params).expect("Failed to create context");
     println!("Context initialized");
 
     // Initialize the sampler
     let mut sparams = SamplerChainParams::new();
     sparams.no_perf = false;
-    let sampler = SamplerChain::new().add(Sampler::greedy());
+    let sampler = SamplerChain::new(sparams).add(Sampler::greedy());
 
     // Print the prompt token-by-token
     for token in &prompt_tokens {
-        let piece = model.token_to_piece(*token);
+        let piece = model.token_to_piece(*token).unwrap();
         print!("{}", piece);
     }
     std::io::stdout().flush().ok();
@@ -79,7 +79,9 @@ fn main() {
             std::process::exit(1);
         }
 
-        let decoder_start_token_id = model.decoder_start_token().unwrap_or(model.bos_token().unwrap());
+        let decoder_start_token_id = model
+            .decoder_start_token()
+            .unwrap_or(model.bos_token().unwrap());
 
         batch = unsafe {
             llama_sys::llama_batch_get_one((&decoder_start_token_id) as *const i32 as *mut i32, 1)
@@ -95,8 +97,8 @@ fn main() {
     let max_tokens = (n_prompt + n_predict as usize) as i32;
     while n_pos + batch.n_tokens < max_tokens {
         // Evaluate the current batch with the transformer model
-        if ctx.decode(batch) != 0 {
-            eprintln!("failed to eval, return code 1");
+        if let Err(e) = ctx.decode(batch) {
+            eprintln!("failed to eval: {:?}", e);
             std::process::exit(1);
         }
 
@@ -110,7 +112,7 @@ fn main() {
             break;
         }
 
-        let piece = model.token_to_piece(new_token_id);
+        let piece = model.token_to_piece(new_token_id).unwrap();
         print!("{}", piece);
         std::io::stdout().flush().ok();
 

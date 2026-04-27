@@ -1,13 +1,17 @@
-use std::ffi::CStr;
 use crate::*;
 use llama_sys::*;
+use std::ffi::CStr;
 
 macro_rules! token_option {
     ($name:ident, $ffi_fn:ident) => {
         #[inline]
         pub fn $name(&self) -> Option<llama_token> {
             let token = unsafe { $ffi_fn(self.vocab) };
-            if token == LLAMA_TOKEN_NULL { None } else { Some(token) }
+            if token == LLAMA_TOKEN_NULL {
+                None
+            } else {
+                Some(token)
+            }
         }
     };
 }

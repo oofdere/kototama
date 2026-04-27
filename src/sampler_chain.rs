@@ -28,8 +28,8 @@ impl DerefMut for SamplerChainParams {
 pub struct SamplerChain(*mut llama_sys::llama_sampler);
 
 impl SamplerChain {
-    pub fn new() -> Self {
-        Self(unsafe { llama_sys::llama_sampler_chain_init(SamplerChainParams::new().0) })
+    pub fn new(params: SamplerChainParams) -> Self {
+        Self(unsafe { llama_sys::llama_sampler_chain_init(params.0) })
     }
 
     pub fn add(self, sampler: Sampler) -> Self {

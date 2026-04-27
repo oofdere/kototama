@@ -15,7 +15,11 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_infill(vocab) })
     }
 
-    pub fn logit_bias(n_vocab: i32, n_logit_bias: i32, logit_bias: *const llama_logit_bias) -> Self {
+    pub fn logit_bias(
+        n_vocab: i32,
+        n_logit_bias: i32,
+        logit_bias: *const llama_logit_bias,
+    ) -> Self {
         Self(unsafe { llama_sys::llama_sampler_init_logit_bias(n_vocab, n_logit_bias, logit_bias) })
     }
 
