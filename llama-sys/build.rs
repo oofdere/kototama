@@ -3,7 +3,7 @@ use std::{env, path::PathBuf};
 
 fn main() {
     let mut config = Config::new("llama.cpp");
-    
+
     // Core settings
     config
         .define("BUILD_SHARED_LIBS", "OFF") // static build
@@ -12,7 +12,7 @@ fn main() {
         .define("GGML_STATIC", "ON")
         .define("GGML_PERF", "OFF")
         .define("GGML_LTO", "ON");
-    
+
     #[cfg(feature = "native")]
     {
         config.define("GGML_NATIVE", "ON");
@@ -28,26 +28,37 @@ fn main() {
     }
 
     let dst = config.build();
-    
+
     // Link the libraries (order matters - dependencies after dependents)
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=llama");
     println!("cargo:rustc-link-lib=static=llama-common");
-    println!("cargo:rustc-link-lib=static=ggml");
-    println!("cargo:rustc-link-lib=static=ggml-cpu");
-    println!("cargo:rustc-link-lib=static=ggml-base");
-    println!("cargo:rustc-link-lib=c++");
-    
-    #[cfg(all(target_os = "macos"))]
+
+    #[cfg(target_os = "macos")]
     {
+        println!("cargo:rustc-link-lib=static=ggml");
+        println!("cargo:rustc-link-lib=static=ggml-cpu");
+        println!("cargo:rustc-link-lib=static=ggml-base");
         println!("cargo:rustc-link-lib=static=ggml-metal");
         println!("cargo:rustc-link-lib=static=ggml-blas");
+        println!("cargo:rustc-link-lib=c++");
     }
-    
+
+    #[cfg(target_os = "linux")]
+    {
+        // Force linker to include ALL symbols from static libs
+        println!("cargo:rustc-link-arg=-Wl,--whole-archive");
+        println!("cargo:rustc-link-lib=static=ggml-cpu");
+        println!("cargo:rustc-link-lib=static=ggml");
+        println!("cargo:rustc-link-lib=static=ggml-base");
+        println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+
     // Rebuild triggers
     println!("cargo:rerun-if-changed=llama.cpp/");
 
-        // Generate bindings with all necessary includes
+    // Generate bindings with all necessary includes
     let bindings = bindgen::Builder::default()
         .header("llama.cpp/include/llama.h")
         .clang_arg("-Illama.cpp/include")
@@ -101,6 +112,7 @@ fn main() {
         .rustified_non_exhaustive_enum("llama_vocab_type")
         .rustified_non_exhaustive_enum("ggml_op_pool")
         .rustified_non_exhaustive_enum("GGML_ROPE_TYPE")
+        .layout_tests(false)
         .clang_arg("-fparse-all-comments")
         .generate()
         .expect("Unable to generate bindings");
