@@ -10,7 +10,14 @@ build = "build.rs"
 bindgen = "0.71"
 cc = "1.2"
 cmake = "0.1.58"
+vcpkg = "0.2.15"
 
 [features]
 default = []
 native = []
+vulkan = []
+
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+branch = "master"
+dependencies = ["vulkan", "shaderc"]

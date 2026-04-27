@@ -10,12 +10,23 @@ fn main() {
         .define("LLAMA_BUILD_TESTS", "OFF")
         .define("LLAMA_BUILD_EXAMPLES", "OFF")
         .define("GGML_STATIC", "ON")
-        .define("GGML_PERF", "OFF")
-        .define("GGML_LTO", "ON");
+        .define("GGML_PERF", "OFF");
+    //.define("GGML_LTO", "ON");
 
     #[cfg(feature = "native")]
     {
         config.define("GGML_NATIVE", "ON");
+    }
+
+    #[cfg(feature = "vulkan")]
+    {
+        if let Ok(vulkan_sdk) = env::var("VULKAN_SDK") {
+            config.cflag(&format!("-I{}/include", vulkan_sdk));
+            config.cxxflag(&format!("-I{}/include", vulkan_sdk));
+        } else {
+            panic!("VULKAN_SDK not set, see llama.cpp docs for config info");
+        }
+        config.define("GGML_VULKAN", "ON");
     }
 
     #[cfg(all(target_os = "macos"))]
@@ -32,7 +43,7 @@ fn main() {
     // Link the libraries (order matters - dependencies after dependents)
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=llama");
-    println!("cargo:rustc-link-lib=static=llama-common");
+    //println!("cargo:rustc-link-lib=static=llama-common");
 
     #[cfg(target_os = "macos")]
     {
@@ -46,12 +57,17 @@ fn main() {
 
     #[cfg(target_os = "linux")]
     {
-        // Force linker to include ALL symbols from static libs
-        println!("cargo:rustc-link-arg=-Wl,--whole-archive");
-        println!("cargo:rustc-link-lib=static=ggml-cpu");
-        println!("cargo:rustc-link-lib=static=ggml");
-        println!("cargo:rustc-link-lib=static=ggml-base");
-        println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
+        println!("cargo:rustc-link-lib=static:+whole-archive=ggml-cpu");
+        println!("cargo:rustc-link-lib=static:+whole-archive=ggml");
+        println!("cargo:rustc-link-lib=static:+whole-archive=ggml-base");
+
+        #[cfg(feature = "vulkan")]
+        {
+            println!("cargo:rustc-link-lib=static:+whole-archive=ggml-vulkan");
+            println!("cargo:rustc-link-lib=vulkan");
+        }
+
+        println!("cargo:rustc-link-lib=gomp");
         println!("cargo:rustc-link-lib=stdc++");
     }
 
