@@ -1,0 +1,3 @@
+## 2024-04-28 - Optimize C calls during tokenization
+**Learning:** `llama_tokenize` behaves identically to C-level length probing: passing a null buffer performs the expensive work (hashing, matching algorithms) just to compute the required length. This causes standard single-pass "estimate-then-tokenize" logic to be inefficient if we probe length first.
+**Action:** Always pre-allocate an estimated buffer (`text.len() + 4`) and call `llama_tokenize` to avoid calling the expensive tokenization routine twice. Resize and call again only when the fallback negative value indicates the estimate was too small.
