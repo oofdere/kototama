@@ -28,7 +28,7 @@ impl DerefMut for SamplerChainParams {
 pub struct SamplerChain(*mut llama_sys::llama_sampler);
 
 impl SamplerChain {
-    pub fn new(params: SamplerChainParams) -> Self {
+    pub fn new(params: &SamplerChainParams) -> Self {
         Self(unsafe { llama_sys::llama_sampler_chain_init(params.0) })
     }
 
@@ -42,6 +42,11 @@ impl SamplerChain {
 
     pub fn perf(&self) -> llama_sys::llama_perf_sampler_data {
         unsafe { llama_sys::llama_perf_sampler(self.0) }
+    }
+
+    pub fn into_raw(self) -> *mut llama_sys::llama_sampler {
+        let ptr = self.0;
+        ptr
     }
 }
 

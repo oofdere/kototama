@@ -41,7 +41,7 @@ fn main() {
     let _vocab = model.vocab; // vocab is already in model struct and gets used automatically when needed
 
     // Tokenize the prompt
-    let prompt_tokens = model.tokenize(&prompt);
+    let prompt_tokens = model.tokenize(&prompt, true, true);
     let n_prompt = prompt_tokens.len();
 
     // Initialize the context

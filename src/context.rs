@@ -44,7 +44,7 @@ pub enum ContextDecodeResult {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(model: &'a Model, params: ContextParams) -> Result<Self, ()> {
+    pub fn new(model: &'a Model, params: &ContextParams) -> Result<Self, ()> {
         let ctx = unsafe { llama_init_from_model(**model, params.0) };
 
         if ctx.is_null() {
@@ -105,6 +105,10 @@ impl<'a> Context<'a> {
 
     pub fn perf(&self) -> llama_sys::llama_perf_context_data {
         unsafe { llama_sys::llama_perf_context(**self) }
+    }
+
+    pub fn n_ctx(&self) -> u32 {
+        unsafe { llama_sys::llama_n_ctx(**self) }
     }
 }
 
