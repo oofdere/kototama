@@ -95,6 +95,9 @@ impl<'a> Context<'a> {
 
     pub fn get_logits_ith(&self, idx: i32, n_vocab: usize) -> &[f32] {
         let ptr = unsafe { llama_get_logits_ith(**self, idx) };
+        if ptr.is_null() {
+            return &[];
+        }
         unsafe { std::slice::from_raw_parts(ptr, n_vocab) }
     }
 

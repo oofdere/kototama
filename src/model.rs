@@ -147,15 +147,16 @@ impl Model {
     }
 
     /// tokenize text
-    /// @details Convert the provided text into tokens. 
-    /// 
-    /// @param tokens The tokens pointer must be large enough to hold the resulting tokens. 
-    /// @return Returns the number of tokens on success, no more than n_tokens_max 
-    /// @return Returns a negative number on failure - the number of tokens that would have been returned 
-    /// @return Returns INT32_MIN on overflow (e.g., tokenization result size exceeds int32_t limit) 
-    /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so. 
+    /// @details Convert the provided text into tokens.
+    ///
+    /// @param tokens The tokens pointer must be large enough to hold the resulting tokens.
+    /// @return Returns the number of tokens on success, no more than n_tokens_max
+    /// @return Returns a negative number on failure - the number of tokens that would have been returned
+    /// @return Returns INT32_MIN on overflow (e.g., tokenization result size exceeds int32_t limit)
+    /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so.
     /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
-    pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {        let len = -unsafe {
+    pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
+        let len = -unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,

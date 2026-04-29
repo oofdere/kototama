@@ -1,0 +1,4 @@
+## 2025-01-20 - [Fix NULL pointer dereferences in FFI boundary]
+**Vulnerability:** Safe Rust abstractions dereferencing potentially null pointers from C FFI calls without checking them first. This was found in `llama_get_logits_ith` which can return NULL for invalid indices, and `llama_log_callback`'s `msg` argument.
+**Learning:** This codebase interfaces heavily with a C library (`llama.cpp`). C functions often return `NULL` pointers or accept `NULL` pointers to indicate errors or optional values. Wrapping these in safe Rust functions without performing null checks leads to Undefined Behavior (UB), a critical security risk (memory corruption, crashes, etc) in safe Rust.
+**Prevention:** Always check C pointers for `NULL` (`ptr.is_null()`) before using unsafe functions like `std::slice::from_raw_parts` or `CStr::from_ptr`. Treat all pointers crossing the FFI boundary as potentially null unless explicitly documented otherwise by the upstream C library.
