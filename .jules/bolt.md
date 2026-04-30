@@ -1,0 +1,3 @@
+## 2024-05-24 - Optimized `Model::tokenize` allocation
+**Learning:** `llama_sys::llama_tokenize` was being called twice unconditionally in `Model::tokenize` to figure out the needed array size. For most typical inputs, the size can be bounded initially (1 token per byte), allowing us to pass an adequately sized buffer on the first try.
+**Action:** Used `Vec::with_capacity` and an initial guess size, avoiding the dual-pass pattern for typical text unless the estimate was wrong. Used `unsafe { tokens.set_len(n) }` after the C call returned exactly the items written to avoid initializing elements.
