@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 use llama_sys::{llama_logit_bias, llama_token, llama_vocab};
 
 #[repr(transparent)]
@@ -169,19 +167,6 @@ impl Drop for Sampler {
         unsafe {
             llama_sys::llama_sampler_free(self.0);
         }
-    }
-}
-
-impl Deref for Sampler {
-    type Target = *mut llama_sys::llama_sampler;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Sampler {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

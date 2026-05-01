@@ -13,10 +13,19 @@ impl ModelParams {
     pub fn new() -> Self {
         Self(unsafe { llama_sys::llama_model_default_params() })
     }
+
+    pub fn as_ptr(&self) -> *const llama_sys::llama_model_params {
+        &self.0
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut llama_sys::llama_model_params {
+        &mut self.0
+    }
 }
 
 impl Deref for ModelParams {
     type Target = llama_sys::llama_model_params;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -58,6 +67,14 @@ impl Model {
             vocab,
             _backend,
         })
+    }
+
+    pub fn as_ptr(&self) -> *const llama_model {
+        self.model
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut llama_model {
+        self.model
     }
 
     /// gets the chat template of the specified name, or the default if None
@@ -187,19 +204,6 @@ impl Model {
 impl Drop for Model {
     fn drop(&mut self) {
         unsafe { llama_model_free(self.model) };
-    }
-}
-
-impl Deref for Model {
-    type Target = *mut llama_sys::llama_model;
-    fn deref(&self) -> &Self::Target {
-        &self.model
-    }
-}
-
-impl DerefMut for Model {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.model
     }
 }
 

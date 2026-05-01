@@ -1,6 +1,5 @@
-use std::ops::{Deref, DerefMut};
-
 use crate::{LlamaSampler, Sampler};
+use std::ops::{Deref, DerefMut};
 
 #[repr(transparent)]
 pub struct SamplerChainParams(llama_sys::llama_sampler_chain_params);
@@ -9,10 +8,19 @@ impl SamplerChainParams {
     pub fn new() -> Self {
         Self(unsafe { llama_sys::llama_sampler_chain_default_params() })
     }
+
+    pub fn as_ptr(&self) -> *const llama_sys::llama_sampler_chain_params {
+        &self.0
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut llama_sys::llama_sampler_chain_params {
+        &mut self.0
+    }
 }
 
 impl Deref for SamplerChainParams {
     type Target = llama_sys::llama_sampler_chain_params;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -34,7 +42,7 @@ impl SamplerChain {
 
     pub fn add(self, sampler: Sampler) -> Self {
         unsafe {
-            llama_sys::llama_sampler_chain_add(self.0, *sampler);
+            llama_sys::llama_sampler_chain_add(self.0, sampler.as_ptr());
             std::mem::forget(sampler); // ownership of sampler gets moved to chain
         }
         self
@@ -53,19 +61,6 @@ impl SamplerChain {
 impl LlamaSampler for SamplerChain {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler {
         self.0
-    }
-}
-
-impl Deref for SamplerChain {
-    type Target = *mut llama_sys::llama_sampler;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for SamplerChain {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

@@ -53,13 +53,13 @@ fn main() {
     // enable performance counters
     ctx_params.no_perf = false;
 
-    let mut ctx = Context::new(&model, ctx_params).expect("Failed to create context");
+    let mut ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
     println!("Context initialized");
 
     // Initialize the sampler
     let mut sparams = SamplerChainParams::new();
     sparams.no_perf = false;
-    let sampler = SamplerChain::new(sparams).add(Sampler::greedy());
+    let sampler = SamplerChain::new(&sparams).add(Sampler::greedy());
 
     // Print the prompt token-by-token
     for token in &prompt_tokens {

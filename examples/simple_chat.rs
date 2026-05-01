@@ -1,6 +1,5 @@
 /// this is mostly a port of the simple_chat example from llama.cpp
 /// ignoring the chat template parts
-
 use clap::Parser;
 use rusty_llama::*;
 
@@ -38,21 +37,20 @@ fn main() {
     let mut ctx_params = ContextParams::new();
     ctx_params.n_ctx = context;
     ctx_params.n_batch = context;
-    let mut ctx = Context::new(&model, ctx_params).expect("Failed to create context");
+    let mut ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
 
     // initialize the sampler
-    let smpl = SamplerChain::new(SamplerChainParams::new())
+    let smpl = SamplerChain::new(&SamplerChainParams::new())
         .add(Sampler::min_p(0.05, 1))
         .add(Sampler::temp(0.8))
         .add(Sampler::dist(llama_sys::LLAMA_DEFAULT_SEED));
 
     // helper function to evaluate a prompt and generate a response
     let mut generate = |prompt: &str| {
-
         let mut response = String::new();
 
         let is_first = unsafe {
-            llama_sys::llama_memory_seq_pos_max(llama_sys::llama_get_memory(*ctx), 0) == -1
+            llama_sys::llama_memory_seq_pos_max(llama_sys::llama_get_memory(ctx.as_ptr()), 0) == -1
         };
 
         // tokenize the prompt
@@ -65,9 +63,9 @@ fn main() {
 
         loop {
             // check if we have enough space in the context to evaluate this batch
-            let n_ctx = unsafe { llama_sys::llama_n_ctx(*ctx) };
+            let n_ctx = unsafe { llama_sys::llama_n_ctx(ctx.as_ptr()) };
             let n_ctx_used = unsafe {
-                llama_sys::llama_memory_seq_pos_max(llama_sys::llama_get_memory(*ctx), 0)
+                llama_sys::llama_memory_seq_pos_max(llama_sys::llama_get_memory(ctx.as_ptr()), 0)
             } + 1;
             if n_ctx_used + batch.n_tokens > n_ctx as i32 {
                 panic!("Prompt is too long");
@@ -83,7 +81,9 @@ fn main() {
                 break;
             }
 
-            let piece = model.token_to_piece(new_token_id).expect("failed to convert token to piece");
+            let piece = model
+                .token_to_piece(new_token_id)
+                .expect("failed to convert token to piece");
             print!("{}", piece);
             response.push_str(&piece);
 
@@ -93,12 +93,16 @@ fn main() {
         response
     };
 
-    let mut messages : Vec<Message> = Vec::new();
+    let mut messages: Vec<Message> = Vec::new();
     fn format(messages: &Vec<Message>) -> String {
-        let mut s = messages.iter().map(|m| match m {
-            Message::User(s) => format!("user: {}", s),
-            Message::Assistant(s) => format!("assistant: {}", s),
-        }).collect::<Vec<String>>().join("\n");
+        let mut s = messages
+            .iter()
+            .map(|m| match m {
+                Message::User(s) => format!("user: {}", s),
+                Message::Assistant(s) => format!("assistant: {}", s),
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
         s.push_str("\nassistant:");
         println!("{}", s);
         s
@@ -107,7 +111,9 @@ fn main() {
     loop {
         // get user input
         let mut input = String::new();
-        std::io::stdin().read_line(&mut input).expect("Failed to read input");
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
         if input.is_empty() {
             break;
         }
@@ -120,7 +126,6 @@ fn main() {
         println!();
         messages.push(Message::Assistant(response));
     }
-
 }
 
 enum Message {

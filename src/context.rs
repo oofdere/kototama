@@ -11,10 +11,19 @@ impl ContextParams {
     pub fn new() -> Self {
         Self(unsafe { llama_context_default_params() })
     }
+
+    pub fn as_ptr(&self) -> *const llama_context_params {
+        &self.0
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut llama_context_params {
+        &mut self.0
+    }
 }
 
 impl Deref for ContextParams {
-    type Target = llama_sys::llama_context_params;
+    type Target = llama_context_params;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -45,7 +54,7 @@ pub enum ContextDecodeResult {
 
 impl<'a> Context<'a> {
     pub fn new(model: &'a Model, params: &ContextParams) -> Result<Self, ()> {
-        let ctx = unsafe { llama_init_from_model(**model, params.0) };
+        let ctx = unsafe { llama_init_from_model(model.as_ptr() as *mut _, params.0) };
 
         if ctx.is_null() {
             return Err(());
@@ -57,6 +66,14 @@ impl<'a> Context<'a> {
         })
     }
 
+    pub fn as_ptr(&self) -> *const llama_context {
+        self.ctx
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut llama_context {
+        self.ctx
+    }
+
     /// Process a batch of tokens.
     /// In contrast to llama_decode() - this call does not use KV cache.
     /// For encode-decoder contexts, processes the batch using the encoder.
@@ -64,7 +81,7 @@ impl<'a> Context<'a> {
     /// 0 - success
     /// < 0 - error. the memory state is restored to the state before this call
     pub fn encode(&self, batch: llama_sys::llama_batch) -> i32 {
-        unsafe { llama_encode(**self, batch) }
+        unsafe { llama_encode(self.ctx, batch) }
     }
 
     /// Process a batch of tokens. Requires the context to have a memory.
@@ -83,7 +100,7 @@ impl<'a> Context<'a> {
     /// - -1 - invalid input batch
     /// - < -1 - fatal error (processed ubatches will remain in the context's memory)
     pub fn decode(&self, batch: llama_sys::llama_batch) -> Result<(), ContextDecodeResult> {
-        let result = unsafe { llama_decode(**self, batch) };
+        let result = unsafe { llama_decode(self.ctx, batch) };
         match result {
             0 => Ok(()),
             1 => Err(ContextDecodeResult::SlotNotFound),
@@ -94,39 +111,26 @@ impl<'a> Context<'a> {
     }
 
     pub fn get_logits_ith(&self, idx: i32, n_vocab: usize) -> &[f32] {
-        let ptr = unsafe { llama_get_logits_ith(**self, idx) };
+        let ptr = unsafe { llama_get_logits_ith(self.ctx, idx) };
         unsafe { std::slice::from_raw_parts(ptr, n_vocab) }
     }
 
     /// Sample and accept a token from the idx-th output of the last evaluation
     pub fn sample<S: LlamaSampler>(&mut self, sampler: &S, idx: i32) -> i32 {
-        unsafe { llama_sys::llama_sampler_sample(sampler.as_ptr(), **self, idx) }
+        unsafe { llama_sys::llama_sampler_sample(sampler.as_ptr(), self.ctx, idx) }
     }
 
     pub fn perf(&self) -> llama_sys::llama_perf_context_data {
-        unsafe { llama_sys::llama_perf_context(**self) }
+        unsafe { llama_sys::llama_perf_context(self.ctx) }
     }
 
     pub fn n_ctx(&self) -> u32 {
-        unsafe { llama_sys::llama_n_ctx(**self) }
+        unsafe { llama_sys::llama_n_ctx(self.ctx) }
     }
 }
 
 impl<'a> Drop for Context<'a> {
     fn drop(&mut self) {
         unsafe { llama_free(self.ctx) };
-    }
-}
-
-impl<'a> Deref for Context<'a> {
-    type Target = *mut llama_sys::llama_context;
-    fn deref(&self) -> &Self::Target {
-        &self.ctx
-    }
-}
-
-impl<'a> DerefMut for Context<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.ctx
     }
 }

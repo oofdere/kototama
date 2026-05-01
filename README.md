@@ -1,6 +1,10 @@
 # Rusty Llama.cpp Binding
 
-upstream version: idk yet
+upstream version: v8994
+
+api stability: no. not yet.
+
+this should just build without any special work if you've followed the [upstream build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md) for your specific backend. currently, only the vulkan and metal backends are supported.
 
 ## Goals
 1. provide high quality rust bindings for llama.cpp
