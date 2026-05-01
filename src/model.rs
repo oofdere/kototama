@@ -156,30 +156,39 @@ impl Model {
     /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so.
     /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
-        let len = -unsafe {
-            llama_sys::llama_tokenize(
-                self.vocab,
-                text.as_ptr() as *const i8,
-                text.len() as i32,
-                std::ptr::null_mut(),
-                0,
-                add_special,
-                parse_special,
-            )
-        };
-        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
-        let n_tokens = unsafe {
+        // A single character can't be split into multiple tokens, except maybe special tokens.
+        // Pre-allocate text.len() + 4 (for potential BOS/EOS/etc) to avoid a second tokenization pass in 99% of cases.
+        let mut tokens = vec![0i32; text.len() + 4];
+        let mut n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32, // is this needed it's a vec
+                tokens.len() as i32,
                 add_special,
                 parse_special,
             )
         };
+
+        if n_tokens < 0 {
+            // Buffer was too small; n_tokens is the negative of the required size
+            tokens.resize((-n_tokens) as usize, 0i32);
+            n_tokens = unsafe {
+                llama_sys::llama_tokenize(
+                    self.vocab,
+                    text.as_ptr() as *const i8,
+                    text.len() as i32,
+                    tokens.as_mut_ptr(),
+                    tokens.len() as i32,
+                    add_special,
+                    parse_special,
+                )
+            };
+        }
+
         tokens.truncate(n_tokens as usize);
+        tokens.shrink_to_fit();
         tokens
     }
 }
