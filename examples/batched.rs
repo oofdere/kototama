@@ -1,5 +1,7 @@
+// batching is not a priority yet, but it is doable
+// help is always welcomed to expose a nicer batching api that us mere mortals can make sense of
+
 use clap::Parser;
-use llama_sys::*;
 use rusty_llama::*;
 
 #[derive(Parser)]
@@ -125,13 +127,10 @@ fn main() {
 
     // create a llama_batch
     // we use this object to submit token data for decoding
-    let mut batch = unsafe {
-        llama_sys::llama_batch_init(
-            std::cmp::max(tokens_list.len(), n_parallel as usize) as i32,
-            0,
-            n_parallel,
-        )
-    };
+    let mut batch = Batch::init_token(
+        std::cmp::max(tokens_list.len(), n_parallel as usize) as i32,
+        n_parallel,
+    );
 
     let mut seq_ids = vec![0; n_parallel as usize];
     for i in 0..n_parallel {
@@ -143,12 +142,12 @@ fn main() {
     println!("tokens_list.len() = {}", tokens_list.len());
 
     for (i, token) in tokens_list.iter().enumerate() {
-        common::batch_add(&mut batch, *token, i as i32, seq_ids.clone(), false).unwrap();
+        common::batch_add(batch.as_raw_mut(), *token, i as i32, seq_ids.clone(), false).unwrap();
     }
     assert!(batch.n_tokens == tokens_list.len() as i32);
 
     if model.has_encoder() {
-        if ctx.encode(batch) != 0 {
+        if ctx.encode(*batch) != 0 {
             eprintln!("failed to eval");
             std::process::exit(1);
         }
@@ -171,7 +170,7 @@ fn main() {
         *batch.logits.add((batch.n_tokens - 1) as usize) = true as i8;
     }
 
-    ctx.decode(batch).unwrap();
+    ctx.decode(*batch).unwrap();
 
     if n_parallel > 1 {
         println!(
@@ -241,7 +240,7 @@ fn main() {
         n_cur += 1;
 
         // evaluate the current batch with the transformer model
-        ctx.decode(batch).unwrap();
+        ctx.decode(*batch).unwrap();
     }
 
     if n_parallel > 1 {
@@ -262,10 +261,6 @@ fn main() {
 
     println!("{:?}", sampler_configs[0].perf());
     println!("{:?}", ctx.perf());
-
-    unsafe {
-        llama_batch_free(batch);
-    }
 
     // the other drops should be handled for you already<3
 }

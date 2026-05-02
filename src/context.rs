@@ -1,5 +1,8 @@
 use llama_sys::*;
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    vec,
+};
 
 use crate::{LlamaSampler, Model};
 
