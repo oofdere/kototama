@@ -156,30 +156,48 @@ impl Model {
     /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so.
     /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
-        let len = -unsafe {
-            llama_sys::llama_tokenize(
-                self.vocab,
-                text.as_ptr() as *const i8,
-                text.len() as i32,
-                std::ptr::null_mut(),
-                0,
-                add_special,
-                parse_special,
-            )
-        };
-        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
-        let n_tokens = unsafe {
+        // Optimize: guess the number of tokens initially to avoid two passes of `llama_tokenize` in most cases.
+        // A common heuristic is 1 token per 3-4 bytes of text. We add some buffer + extra space for special tokens.
+        let estimated_len = text.len() / 3 + 8;
+        let mut tokens = vec![0i32; estimated_len];
+
+        let mut n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32, // is this needed it's a vec
+                tokens.len() as i32,
                 add_special,
                 parse_special,
             )
         };
-        tokens.truncate(n_tokens as usize);
+
+        // If the initial buffer was too small, `llama_tokenize` returns negative value
+        // indicating the required size (negative of required size).
+        if n_tokens < 0 {
+            let required_len = -n_tokens as usize;
+            tokens.resize(required_len, 0);
+
+            n_tokens = unsafe {
+                llama_sys::llama_tokenize(
+                    self.vocab,
+                    text.as_ptr() as *const i8,
+                    text.len() as i32,
+                    tokens.as_mut_ptr(),
+                    tokens.len() as i32,
+                    add_special,
+                    parse_special,
+                )
+            };
+        }
+
+        if n_tokens > 0 {
+            tokens.truncate(n_tokens as usize);
+        } else {
+            tokens.clear();
+        }
+
         tokens
     }
 }
