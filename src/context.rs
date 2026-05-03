@@ -1,12 +1,16 @@
 use llama_sys::*;
 use std::{
-    ops::{Deref, DerefMut},
+    cell::RefCell,
+    ops::{Deref, DerefMut, Range},
+    rc::Weak,
+    sync::OnceLock,
     vec,
 };
 
-use crate::{LlamaSampler, Model};
+use crate::{LlamaSampler, Model, Sequence};
 
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct ContextParams(llama_context_params);
 
 // todo builder pattern
@@ -40,7 +44,9 @@ impl DerefMut for ContextParams {
 
 pub struct Context<'a> {
     ctx: *mut llama_context,
-    _model: std::marker::PhantomData<&'a Model>,
+    params: &'a ContextParams,
+    pub(crate) tokens: Box<[RefCell<Vec<llama_token>>]>,
+    model: &'a Model,
 }
 
 #[derive(Debug)]
@@ -56,17 +62,35 @@ pub enum ContextDecodeResult {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(model: &'a Model, params: &ContextParams) -> Result<Self, ()> {
+    pub fn new(model: &'a Model, params: &'a ContextParams) -> Result<Self, ()> {
         let ctx = unsafe { llama_init_from_model(model.as_ptr() as *mut _, params.0) };
 
         if ctx.is_null() {
             return Err(());
         }
 
-        Ok(Self {
+        let ctx = Self {
             ctx,
-            _model: std::marker::PhantomData,
-        })
+            tokens: vec![RefCell::new(Vec::new()); params.n_seq_max as usize].into_boxed_slice(), // switch to an array eventually probably
+            params,
+            model,
+        };
+
+        Ok(ctx)
+    }
+
+    /// get a sequence by index
+    pub fn sequence(&self, index: llama_seq_id) -> Sequence<'_, 'a> {
+        Sequence::new(self, index)
+    }
+
+    /// get a reference back to the model this context is tied to
+    pub fn model(&self) -> &'a Model {
+        self.model
+    }
+
+    pub fn params(&self) -> &'a ContextParams {
+        self.params
     }
 
     pub fn as_ptr(&self) -> *const llama_context {
@@ -75,6 +99,10 @@ impl<'a> Context<'a> {
 
     pub fn as_mut_ptr(&mut self) -> *mut llama_context {
         self.ctx
+    }
+
+    pub fn get_memory(&self) -> llama_memory_t {
+        unsafe { llama_get_memory(self.ctx) }
     }
 
     /// Process a batch of tokens.
@@ -120,15 +148,19 @@ impl<'a> Context<'a> {
 
     /// Sample and accept a token from the idx-th output of the last evaluation
     pub fn sample<S: LlamaSampler>(&mut self, sampler: &S, idx: i32) -> i32 {
-        unsafe { llama_sys::llama_sampler_sample(sampler.as_ptr(), self.ctx, idx) }
+        unsafe { llama_sampler_sample(sampler.as_ptr(), self.ctx, idx) }
     }
 
-    pub fn perf(&self) -> llama_sys::llama_perf_context_data {
-        unsafe { llama_sys::llama_perf_context(self.ctx) }
+    pub fn perf(&self) -> llama_perf_context_data {
+        unsafe { llama_perf_context(self.ctx) }
     }
 
     pub fn n_ctx(&self) -> u32 {
-        unsafe { llama_sys::llama_n_ctx(self.ctx) }
+        unsafe { llama_n_ctx(self.ctx) }
+    }
+
+    pub fn can_shift(&self) -> bool {
+        unsafe { llama_memory_can_shift(self.get_memory()) }
     }
 }
 
