@@ -4,6 +4,7 @@ use std::ops::Deref;
 pub struct Batch {
     batch: llama_batch,
     owns_memory: bool,
+    allocated: usize,
 }
 
 impl Batch {
@@ -13,14 +14,14 @@ impl Batch {
     /// n_seq_max: maximum number of sequence IDs per token
     pub fn init(n_tokens_alloc: i32, embd: i32, n_seq_max: i32) -> Self {
         let batch = unsafe { llama_batch_init(n_tokens_alloc, embd, n_seq_max) };
-        Self { batch, owns_memory: true }
+        Self { batch, owns_memory: true, allocated: n_tokens_alloc as usize }
     }
 
     /// Create a batch from a single token (simple case for single-token generation)
     /// Note: This creates a batch that doesn't own the token memory - the token slice must outlive the batch
     pub fn from_one(token: &i32) -> Self {
         let batch = unsafe { llama_batch_get_one(token as *const i32 as *mut i32, 1) };
-        Self { batch, owns_memory: false }
+        Self { batch, owns_memory: false, allocated: 1 }
     }
 
     /// Create a batch from a slice of tokens
@@ -29,7 +30,7 @@ impl Batch {
         let batch = unsafe {
             llama_batch_get_one(tokens.as_ptr() as *mut i32, tokens.len() as i32)
         };
-        Self { batch, owns_memory: false }
+        Self { batch, owns_memory: false, allocated: tokens.len() }
     }
 
     /// Add a token to the batch at a specific position
@@ -74,13 +75,7 @@ impl Batch {
 
     /// Get the capacity of the batch (maximum number of tokens)
     pub fn capacity(&self) -> usize {
-        // This is approximate - the actual capacity depends on allocation
-        // For now, we'll return a reasonable estimate
-        if !self.batch.token.is_null() || !self.batch.embd.is_null() {
-            2048 // Default allocation size
-        } else {
-            0
-        }
+        self.allocated
     }
 }
 

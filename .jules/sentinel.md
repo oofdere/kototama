@@ -1,0 +1,4 @@
+## 2024-05-03 - [CRITICAL] Fix heap buffer overflow in batch tracking
+**Vulnerability:** The `Batch::capacity()` implementation returned a hardcoded value of 2048 instead of tracking the actual allocated size from the underlying C FFI structs. This allowed `Batch::add_token()` to bypass bounds checking and perform out-of-bounds writes on buffers with a smaller size (e.g. 1).
+**Learning:** Hardcoded estimates in Rust wrappers over C FFI structs frequently lead to dangerous memory safety violations since they are implicitly trusted by safe abstraction layers. Always track the dynamically allocated lengths assigned during construction.
+**Prevention:** Store the allocated length at the struct creation site (e.g. `n_tokens_alloc`, slices length) and bind all bounds checking validation strictly to this stored property instead of deriving or estimating it from pointers.
