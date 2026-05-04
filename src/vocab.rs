@@ -54,10 +54,14 @@ impl Model {
     }
 
     #[inline]
-    pub fn get_text(&self, token: llama_token) -> &CStr {
+    pub fn get_text(&self, token: llama_token) -> Option<&CStr> {
         unsafe {
             let ptr = llama_vocab_get_text(self.vocab, token);
-            CStr::from_ptr(ptr)
+            if ptr.is_null() {
+                None
+            } else {
+                Some(CStr::from_ptr(ptr))
+            }
         }
     }
 

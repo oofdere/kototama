@@ -35,6 +35,9 @@ pub extern "C" fn llama_log_callback(
     _user_data: *mut std::os::raw::c_void,
 ) {
     use std::ffi::CStr;
+    if msg.is_null() {
+        return;
+    }
     let msg_str = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     match level {
         ggml_log_level::GGML_LOG_LEVEL_ERROR => eprint!("[ERROR] {}", msg_str),
