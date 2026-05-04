@@ -1,5 +1,6 @@
 use llama_sys::*;
 use std::{
+    cell::RefCell,
     ops::{Deref, DerefMut},
     vec,
 };
@@ -39,10 +40,20 @@ impl DerefMut for ContextParams {
     }
 }
 
+/// Tracks the raw text accumulated via `push_str` for a single sequence.
+///
+/// `token_start` is the index into the token vec where this text region begins.
+/// Token-level operations reset the buffer so the next `push_str` starts fresh.
+pub(crate) struct TextBuf {
+    pub text: String,
+    pub token_start: usize,
+}
+
 pub struct Context<'a> {
     ctx: *mut llama_context,
     params: &'a ContextParams,
-    pub(crate) tokens: Box<[Vec<llama_token>]>,
+    pub(crate) tokens: Box<[RefCell<Vec<llama_token>>]>,
+    pub(crate) text_bufs: Box<[RefCell<TextBuf>]>,
     model: &'a Model,
 }
 
@@ -66,9 +77,15 @@ impl<'a> Context<'a> {
             return Err(());
         }
 
+        let n_seq = params.n_seq_max as usize;
+        let text_bufs = (0..n_seq)
+            .map(|_| RefCell::new(TextBuf { text: String::new(), token_start: 0 }))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         let ctx = Self {
             ctx,
-            tokens: vec![Vec::new(); params.n_seq_max as usize].into_boxed_slice(),
+            tokens: vec![RefCell::new(Vec::new()); n_seq].into_boxed_slice(),
+            text_bufs,
             params,
             model,
         };
@@ -79,11 +96,6 @@ impl<'a> Context<'a> {
     /// get a sequence by index
     pub fn sequence(&self, index: llama_seq_id) -> Sequence<'_, 'a> {
         Sequence::new(self, index)
-    }
-
-    /// get a mutable reference to the token list for a sequence
-    pub fn tokens_mut(&mut self, seq_id: llama_seq_id) -> &mut Vec<llama_token> {
-        &mut self.tokens[seq_id as usize]
     }
 
     /// get a reference back to the model this context is tied to
@@ -149,7 +161,7 @@ impl<'a> Context<'a> {
     }
 
     /// Sample and accept a token from the idx-th output of the last evaluation
-    pub fn sample<S: LlamaSampler>(&mut self, sampler: &S, idx: i32) -> i32 {
+    pub fn sample<S: LlamaSampler>(&self, sampler: &S, idx: i32) -> i32 {
         unsafe { llama_sampler_sample(sampler.as_ptr(), self.ctx, idx) }
     }
 
@@ -160,13 +172,9 @@ impl<'a> Context<'a> {
     pub fn n_ctx(&self) -> u32 {
         unsafe { llama_n_ctx(self.ctx) }
     }
-
-    pub fn can_shift(&self) -> bool {
-        unsafe { llama_memory_can_shift(self.get_memory()) }
-    }
 }
 
-impl<'a> Drop for Context<'a> {
+impl Drop for Context<'_> {
     fn drop(&mut self) {
         unsafe { llama_free(self.ctx) };
     }
