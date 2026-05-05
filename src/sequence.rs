@@ -1,13 +1,7 @@
 use llama_sys::*;
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut, Range},
-    rc::Weak,
-    sync::OnceLock,
-    vec,
-};
+use std::ops::{Index, Range};
 
-use crate::{Context, LlamaSampler, Model};
+use crate::Context;
 
 pub struct Sequence<'ctx, 'a> {
     ctx: &'a Context<'ctx>,
@@ -39,8 +33,8 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         unsafe { llama_memory_seq_pos_max(self.ctx.get_memory(), self.id as i32) }
     }
 
-    /// get the RefCell containing the tokens for this sequence
-    pub fn tokens(&self) -> &RefCell<Vec<llama_token>> {
+    /// get a reference to the tokens for this sequence
+    pub fn tokens(&self) -> &[llama_token] {
         &self.ctx.tokens[self.id as usize]
     }
 
@@ -82,5 +76,13 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
                 delta,
             )
         }
+    }
+}
+
+impl<'ctx, 'a> Index<usize> for Sequence<'ctx, 'a> {
+    type Output = llama_token;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.ctx.tokens[self.id as usize][index]
     }
 }
