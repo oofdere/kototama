@@ -1,6 +1,9 @@
 use llama_sys::*;
 use std::{
-    ops::{Deref, DerefMut},
+    cell::RefCell,
+    ops::{Deref, DerefMut, Range},
+    rc::Weak,
+    sync::OnceLock,
     vec,
 };
 
@@ -42,7 +45,7 @@ impl DerefMut for ContextParams {
 pub struct Context<'a> {
     ctx: *mut llama_context,
     params: &'a ContextParams,
-    pub(crate) tokens: Box<[Vec<llama_token>]>,
+    pub(crate) tokens: Box<[RefCell<Vec<llama_token>>]>,
     model: &'a Model,
 }
 
@@ -68,7 +71,7 @@ impl<'a> Context<'a> {
 
         let ctx = Self {
             ctx,
-            tokens: vec![Vec::new(); params.n_seq_max as usize].into_boxed_slice(),
+            tokens: vec![RefCell::new(Vec::new()); params.n_seq_max as usize].into_boxed_slice(), // switch to an array eventually probably
             params,
             model,
         };
@@ -79,11 +82,6 @@ impl<'a> Context<'a> {
     /// get a sequence by index
     pub fn sequence(&self, index: llama_seq_id) -> Sequence<'_, 'a> {
         Sequence::new(self, index)
-    }
-
-    /// get a mutable reference to the token list for a sequence
-    pub fn tokens_mut(&mut self, seq_id: llama_seq_id) -> &mut Vec<llama_token> {
-        &mut self.tokens[seq_id as usize]
     }
 
     /// get a reference back to the model this context is tied to
