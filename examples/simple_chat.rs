@@ -1,5 +1,6 @@
 /// this is mostly a port of the simple_chat example from llama.cpp
 /// ignoring the chat template parts
+
 use clap::Parser;
 use rusty_llama::*;
 
@@ -47,6 +48,7 @@ fn main() {
 
     // helper function to evaluate a prompt and generate a response
     let mut generate = |prompt: &str| {
+
         let mut response = String::new();
 
         let is_first = unsafe {
@@ -81,9 +83,7 @@ fn main() {
                 break;
             }
 
-            let piece = model
-                .token_to_piece(new_token_id)
-                .expect("failed to convert token to piece");
+            let piece = model.token_to_piece(new_token_id).expect("failed to convert token to piece");
             print!("{}", piece);
             response.push_str(&piece);
 
@@ -93,16 +93,12 @@ fn main() {
         response
     };
 
-    let mut messages: Vec<Message> = Vec::new();
+    let mut messages : Vec<Message> = Vec::new();
     fn format(messages: &Vec<Message>) -> String {
-        let mut s = messages
-            .iter()
-            .map(|m| match m {
-                Message::User(s) => format!("user: {}", s),
-                Message::Assistant(s) => format!("assistant: {}", s),
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
+        let mut s = messages.iter().map(|m| match m {
+            Message::User(s) => format!("user: {}", s),
+            Message::Assistant(s) => format!("assistant: {}", s),
+        }).collect::<Vec<String>>().join("\n");
         s.push_str("\nassistant:");
         println!("{}", s);
         s
@@ -111,9 +107,7 @@ fn main() {
     loop {
         // get user input
         let mut input = String::new();
-        std::io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
+        std::io::stdin().read_line(&mut input).expect("Failed to read input");
         if input.is_empty() {
             break;
         }
@@ -126,6 +120,7 @@ fn main() {
         println!();
         messages.push(Message::Assistant(response));
     }
+
 }
 
 enum Message {
