@@ -1,0 +1,3 @@
+## 2024-05-24 - [Avoid zero-initializing vectors for FFI]
+**Learning:** When interacting with C code via FFI, if the buffer is entirely populated by the C function, avoid allocating and zero-initializing memory like `vec![0; len]`. This does unnecessary work initializing memory to zero.
+**Action:** Use `Vec::with_capacity(len)` alongside `vec.set_len(len)` inside an `unsafe` block after passing `vec.as_mut_ptr()` to the C function to save cycles.
