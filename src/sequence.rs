@@ -1,28 +1,69 @@
-use crate::{Batch, Context, LlamaSampler, Model};
+use crate::{common::*, Batch, Context, LlamaSampler, Model};
 use llama_sys::*;
 use std::{
     cell::RefCell,
-    ops::{Deref, DerefMut, Range},
+    ops::{Deref, DerefMut, Index, Range},
     rc::Weak,
     sync::OnceLock,
     vec,
 };
 
-
 pub struct Sequence<'ctx, 'a> {
     ctx: &'a Context<'ctx>,
     id: llama_seq_id,
+    batch: Batch,
 }
 
 impl<'ctx, 'a> Sequence<'ctx, 'a> {
     pub(crate) fn new(ctx: &'a Context<'ctx>, id: llama_seq_id) -> Self {
-        Self { ctx, id }
+        let batch = Batch::init_token(1, ctx.params().n_seq_max as i32);
+        unsafe {
+            *batch.n_seq_id.add(0) = 1;
+            *(*batch.seq_id.add(0)).add(0) = id;
+            *batch.logits.add(0) = 1; // i8, 1 = give me logits
+        }
+
+        Self { ctx, id, batch }
+    }
+
+    pub fn push(&mut self, token: llama_token) {
+        let pos = self.tokens().borrow().len().clone() as i32;
+        batch_clear(&mut self.batch);
+        batch_add(&mut self.batch, token, pos, &[self.id], true).unwrap();
+        self.ctx.decode(*self.batch).unwrap();
+        self.tokens().borrow_mut().push(token);
+    }
+
+    pub fn pop(&mut self) -> Option<llama_token> {
+        let len = self.tokens().borrow().len() as i32;
+        if len == 0 {
+            return None;
+        }
+        if self.kv_remove((len - 1)..len) {
+            self.tokens().borrow_mut().pop()
+        } else {
+            None
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tokens().borrow().len()
+    }
+
+    pub fn extend(&mut self, tokens: &[llama_token]) {
+        for &token in tokens {
+            self.push(token);
+        }
+    }
+
+    pub fn get(&self, index: usize) -> Option<llama_token> {
+        self.tokens().borrow().get(index).copied()
     }
 
     /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
-    /// 
+    ///
     /// Returns false if a partial sequence cannot be removed. Removing a whole sequence never fails.
-    /// 
+    ///
     /// - if start is negative it will be treated as `0`
     /// - if end is negative it will be treated as the end of the sequence
     pub fn remove(&mut self, range: Range<usize>) -> bool {
@@ -52,7 +93,15 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
     /// p1 < 0 : [p0, inf)
     fn shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
         if self.ctx.can_shift() {
-            unsafe { llama_memory_seq_add(self.ctx.get_memory(), self.id as i32, range.start, range.end, delta) }
+            unsafe {
+                llama_memory_seq_add(
+                    self.ctx.get_memory(),
+                    self.id as i32,
+                    range.start,
+                    range.end,
+                    delta,
+                )
+            }
         } else {
             todo!("add fallback for when seq_add is not supported")
         }

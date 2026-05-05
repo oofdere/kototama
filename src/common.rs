@@ -11,7 +11,7 @@ pub fn batch_add(
     batch: &mut llama_batch,
     id: llama_token,
     pos: llama_pos,
-    seq_ids: Vec<llama_seq_id>,
+    seq_ids: &[llama_seq_id],
     logits: bool,
 ) -> Result<(), BatchAddError> {
     let seq_ids_ptr = unsafe { *batch.seq_id.add(batch.n_tokens as usize) };
