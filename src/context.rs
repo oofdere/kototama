@@ -1,11 +1,5 @@
 use llama_sys::*;
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut, Range},
-    rc::Weak,
-    sync::OnceLock,
-    vec,
-};
+use std::ops::{Deref, DerefMut};
 
 use crate::{LlamaSampler, Model, Sequence};
 
@@ -45,7 +39,6 @@ impl DerefMut for ContextParams {
 pub struct Context<'a> {
     ctx: *mut llama_context,
     params: &'a ContextParams,
-    pub(crate) tokens: Box<[RefCell<Vec<llama_token>>]>,
     model: &'a Model,
 }
 
@@ -71,7 +64,6 @@ impl<'a> Context<'a> {
 
         let ctx = Self {
             ctx,
-            tokens: vec![RefCell::new(Vec::new()); params.n_seq_max as usize].into_boxed_slice(), // switch to an array eventually probably
             params,
             model,
         };

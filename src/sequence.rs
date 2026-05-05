@@ -1,17 +1,12 @@
-use crate::{common::*, Batch, Context, LlamaSampler, Model};
+use crate::{common::*, Batch, Context};
 use llama_sys::*;
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut, Index, Range},
-    rc::Weak,
-    sync::OnceLock,
-    vec,
-};
+use std::ops::{Index, Range};
 
 pub struct Sequence<'ctx, 'a> {
     ctx: &'a Context<'ctx>,
     id: llama_seq_id,
     batch: Batch,
+    tokens: Vec<llama_token>,
 }
 
 impl<'ctx, 'a> Sequence<'ctx, 'a> {
@@ -23,31 +18,36 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
             *batch.logits.add(0) = 1; // i8, 1 = give me logits
         }
 
-        Self { ctx, id, batch }
+        Self {
+            ctx,
+            id,
+            batch,
+            tokens: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, token: llama_token) {
-        let pos = self.tokens().borrow().len().clone() as i32;
+        let pos = self.tokens.len() as i32;
         batch_clear(&mut self.batch);
         batch_add(&mut self.batch, token, pos, &[self.id], true).unwrap();
         self.ctx.decode(*self.batch).unwrap();
-        self.tokens().borrow_mut().push(token);
+        self.tokens.push(token);
     }
 
     pub fn pop(&mut self) -> Option<llama_token> {
-        let len = self.tokens().borrow().len() as i32;
+        let len = self.tokens.len() as i32;
         if len == 0 {
             return None;
         }
         if self.kv_remove((len - 1)..len) {
-            self.tokens().borrow_mut().pop()
+            self.tokens.pop()
         } else {
             None
         }
     }
 
     pub fn len(&self) -> usize {
-        self.tokens().borrow().len()
+        self.tokens.len()
     }
 
     pub fn extend(&mut self, tokens: &[llama_token]) {
@@ -57,7 +57,7 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
     }
 
     pub fn get(&self, index: usize) -> Option<llama_token> {
-        self.tokens().borrow().get(index).copied()
+        self.tokens.get(index).copied()
     }
 
     /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
@@ -68,7 +68,7 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
     /// - if end is negative it will be treated as the end of the sequence
     pub fn remove(&mut self, range: Range<usize>) -> bool {
         if self.kv_remove(range.start as i32..range.end as i32) {
-            self.tokens().borrow_mut().drain(range);
+            self.tokens.drain(range);
             true
         } else {
             false
@@ -78,9 +78,8 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
     /// overwrites the other sequence with the tokens in this sequence
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
         self.kv_copy(other, range.start as i32..range.end as i32);
-        let mut tokens = other.tokens().borrow_mut();
-        tokens.clear();
-        tokens.extend_from_slice(&self.tokens().borrow()[range.start..range.end]);
+        other.tokens.clear();
+        other.tokens.extend_from_slice(&self.tokens[range.start..range.end]);
     }
 
     /// overwrites the tokens in this sequence with the tokens from the other sequence
@@ -127,9 +126,9 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         unsafe { llama_memory_seq_pos_max(self.ctx.get_memory(), self.id as i32) }
     }
 
-    /// get the RefCell containing the tokens for this sequence
-    pub fn tokens(&self) -> &RefCell<Vec<llama_token>> {
-        &self.ctx.tokens[self.id as usize]
+    /// get a reference to the tokens for this sequence
+    pub fn tokens(&self) -> &[llama_token] {
+        &self.tokens
     }
 
     /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
@@ -170,5 +169,13 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
                 delta,
             )
         }
+    }
+}
+
+impl<'ctx, 'a> Index<usize> for Sequence<'ctx, 'a> {
+    type Output = llama_token;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.tokens[index]
     }
 }
