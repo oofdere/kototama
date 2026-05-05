@@ -27,3 +27,5 @@ mod vocab;
 pub use vocab::*;
 
 pub mod common;
+
+pub mod batch;

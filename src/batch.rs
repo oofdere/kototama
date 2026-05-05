@@ -14,23 +14,34 @@ impl Batch {
     /// n_seq_max: maximum number of sequence IDs per token
     pub fn init(n_tokens_alloc: i32, embd: i32, n_seq_max: i32) -> Self {
         let batch = unsafe { llama_batch_init(n_tokens_alloc, embd, n_seq_max) };
-        Self { batch, owns_memory: true, allocated: n_tokens_alloc as usize }
+        Self {
+            batch,
+            owns_memory: true,
+            allocated: n_tokens_alloc as usize,
+        }
     }
 
     /// Create a batch from a single token (simple case for single-token generation)
     /// Note: This creates a batch that doesn't own the token memory - the token slice must outlive the batch
     pub fn from_one(token: &i32) -> Self {
         let batch = unsafe { llama_batch_get_one(token as *const i32 as *mut i32, 1) };
-        Self { batch, owns_memory: false, allocated: 1 }
+        Self {
+            batch,
+            owns_memory: false,
+            allocated: 1,
+        }
     }
 
     /// Create a batch from a slice of tokens
     /// Note: This creates a batch that doesn't own the token memory - the token slice must outlive the batch
     pub fn from_tokens(tokens: &[i32]) -> Self {
-        let batch = unsafe {
-            llama_batch_get_one(tokens.as_ptr() as *mut i32, tokens.len() as i32)
-        };
-        Self { batch, owns_memory: false, allocated: tokens.len() }
+        let batch =
+            unsafe { llama_batch_get_one(tokens.as_ptr() as *mut i32, tokens.len() as i32) };
+        Self {
+            batch,
+            owns_memory: false,
+            allocated: tokens.len(),
+        }
     }
 
     /// Add a token to the batch at a specific position
@@ -47,7 +58,13 @@ impl Batch {
                     *self.batch.pos.add(self.batch.n_tokens as usize) = pos;
                 }
                 // Set sequence ID
-                if !self.batch.seq_id.is_null() && !self.batch.seq_id.add(self.batch.n_tokens as usize).is_null() {
+                if !self.batch.seq_id.is_null()
+                    && !self
+                        .batch
+                        .seq_id
+                        .add(self.batch.n_tokens as usize)
+                        .is_null()
+                {
                     let seq_ids = *self.batch.seq_id.add(self.batch.n_tokens as usize);
                     if !seq_ids.is_null() && !self.batch.n_seq_id.is_null() {
                         *self.batch.n_seq_id.add(self.batch.n_tokens as usize) = 1;
@@ -56,7 +73,8 @@ impl Batch {
                 }
                 // Set logits flag
                 if !self.batch.logits.is_null() {
-                    *self.batch.logits.add(self.batch.n_tokens as usize) = if logits { 1 } else { 0 };
+                    *self.batch.logits.add(self.batch.n_tokens as usize) =
+                        if logits { 1 } else { 0 };
                 }
                 self.batch.n_tokens += 1;
             }

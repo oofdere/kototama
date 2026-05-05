@@ -75,7 +75,7 @@ fn main() {
     ctx_params.n_ctx = n_kv_req as u32;
     ctx_params.n_batch = std::cmp::max(n_predict, n_parallel) as u32;
     // set by common_context_params_to_llama()
-    ctx_params.n_seq_max = n_parallel as u32; 
+    ctx_params.n_seq_max = n_parallel as u32;
     ctx_params.kv_unified = true;
 
     let mut sampler_params = SamplerChainParams::new();
@@ -89,7 +89,7 @@ fn main() {
             .add(Sampler::top_p(args.top_p, args.min_keep))
             .add(Sampler::temp(args.temp))
             // the original example doesn't vary the seed for some reason, but I did so here
-            .add(Sampler::dist(args.seed + i as u32)); 
+            .add(Sampler::dist(args.seed + i as u32));
 
         sampler_configs.push(sampler);
     }
@@ -156,7 +156,14 @@ fn main() {
         let decoder_start_token_id = model.decoder_start_token().unwrap();
 
         common::batch_clear(&mut batch);
-        common::batch_add(&mut batch, decoder_start_token_id, 0, seq_ids.clone(), false).unwrap();
+        common::batch_add(
+            &mut batch,
+            decoder_start_token_id,
+            0,
+            seq_ids.clone(),
+            false,
+        )
+        .unwrap();
     }
 
     // llama_decode will output logits only for the last token of the prompt
@@ -178,7 +185,7 @@ fn main() {
 
     // we will store the parallel decoded sequences in this vector
     let mut streams: Vec<String> = vec![String::new(); n_parallel as usize];
-    
+
     // remember the batch index of the last token for each parallel sequence
     // we need this to determine which logits to sample from
     let mut i_batch: Vec<i32> = vec![batch.n_tokens - 1; n_parallel as usize];
@@ -200,7 +207,7 @@ fn main() {
             }
 
             let new_token_id = ctx.sample(&sampler_configs[i as usize], i_batch[i as usize]);
-            
+
             // is it an end of generation? -> mark the stream as finished
             if model.is_eog(new_token_id) || n_cur == n_predict {
                 i_batch[i as usize] = -1;
@@ -217,7 +224,7 @@ fn main() {
             }
 
             streams[i as usize] += &model.token_to_piece(new_token_id).unwrap();
-        
+
             i_batch[i as usize] = batch.n_tokens;
 
             // push this new token for next evaluation
@@ -243,10 +250,15 @@ fn main() {
             println!("sequence {}:\n\n{}{}\n\n", i, prompt, stream);
         }
     }
-    
+
     let t_main_end = std::time::Instant::now();
-    
-    println!("\n\ndecoded {} tokens in {:.2} s, speed: {:.2} t/s\n", n_decode, (t_main_end - t_main_start).as_secs_f64(), n_decode as f64 / (t_main_end - t_main_start).as_secs_f64());
+
+    println!(
+        "\n\ndecoded {} tokens in {:.2} s, speed: {:.2} t/s\n",
+        n_decode,
+        (t_main_end - t_main_start).as_secs_f64(),
+        n_decode as f64 / (t_main_end - t_main_start).as_secs_f64()
+    );
 
     println!("{:?}", sampler_configs[0].perf());
     println!("{:?}", ctx.perf());
