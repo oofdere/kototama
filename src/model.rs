@@ -96,8 +96,22 @@ impl Model {
         // get length of name
         let len = unsafe { llama_model_desc(self.model, null_mut(), 0) };
 
-        let mut buf = vec![c_char::default(); len as usize];
-        unsafe { llama_model_desc(self.model, buf.as_mut_ptr(), len.try_into().unwrap()) };
+        // OPTIMIZATION: Avoid zero-initializing the buffer since the C function fully overwrites it
+        let mut buf = Vec::with_capacity(len as usize);
+        let actual_len =
+            unsafe { llama_model_desc(self.model, buf.as_mut_ptr(), len.try_into().unwrap()) };
+
+        if actual_len < 0 {
+            return String::new();
+        }
+
+        unsafe { buf.set_len(actual_len as usize) };
+
+        // Ensure null termination safely, checking if the C function appended it or if we need to
+        if buf.last() != Some(&0) {
+            buf.push(0);
+        }
+
         // throw it in a string
         let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
         cstr.to_string_lossy().to_string()
@@ -184,19 +198,29 @@ impl Model {
                 parse_special,
             )
         };
-        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
+        // OPTIMIZATION: Avoid zero-initializing the vector since it's fully overwritten by the C function
+        let mut tokens = Vec::with_capacity(len as usize);
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32, // is this needed it's a vec
+                tokens.capacity() as i32,
                 add_special,
                 parse_special,
             )
         };
-        tokens.truncate(n_tokens as usize);
+
+        if n_tokens >= 0 {
+            // safely handle capacity to prevent UB
+            let safe_len = std::cmp::min(n_tokens as usize, tokens.capacity());
+            unsafe { tokens.set_len(safe_len) };
+        } else {
+            // If the function returns a negative error code
+            return Vec::new();
+        }
+
         tokens
     }
 }

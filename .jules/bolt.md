@@ -1,0 +1,3 @@
+## 2024-05-24 - Avoid Zero-Initialization in Rust FFI Buffers
+**Learning:** When passing dynamically sized buffers to C functions via FFI (e.g. `llama_model_desc` or `llama_tokenize`), zero-initializing vectors (`vec![0; len]`) adds unnecessary overhead. Using `Vec::with_capacity` paired with a carefully verified `set_len` after the FFI call populates the memory skips this initial memset entirely.
+**Action:** Always prefer allocating uninitialized capacity (`Vec::with_capacity`) for pure output FFI buffers instead of zero-initializing them, ensuring the C API return values are checked for success (and properly sized bounds) prior to calling `set_len`.
