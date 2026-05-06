@@ -79,7 +79,8 @@ impl Model {
 
     /// gets the chat template of the specified name, or the default if None
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
-        let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
+        // SECURITY: Avoid using `.unwrap()` on CString::new() with untrusted input to prevent panics from null bytes
+        let name_cstr = name.and_then(|s| std::ffi::CString::new(s).ok());
         let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
         let str = unsafe { llama_model_chat_template(self.model, name_ptr) };
         if str.is_null() {
@@ -173,11 +174,17 @@ impl Model {
     /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so.
     /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
+        // SECURITY: Validate text length before casting to i32 to prevent integer overflow and buffer over-reads
+        let text_len = match i32::try_from(text.len()) {
+            Ok(len) => len,
+            Err(_) => return Vec::new(),
+        };
+
         let len = -unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
-                text.len() as i32,
+                text_len,
                 std::ptr::null_mut(),
                 0,
                 add_special,
@@ -189,7 +196,7 @@ impl Model {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
-                text.len() as i32,
+                text_len,
                 tokens.as_mut_ptr(),
                 tokens.len() as i32, // is this needed it's a vec
                 add_special,
