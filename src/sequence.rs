@@ -179,3 +179,9 @@ impl<'ctx, 'a> Index<usize> for Sequence<'ctx, 'a> {
         &self.tokens[index]
     }
 }
+
+impl Drop for Sequence<'_, '_> {
+    fn drop(&mut self) {
+        self.ctx.checked_out[self.id as usize].set(false);
+    }
+}

@@ -1,5 +1,9 @@
 use llama_sys::*;
-use std::ops::{Deref, DerefMut};
+use std::{
+    cell::Cell,
+    ops::{Deref, DerefMut},
+    vec,
+};
 
 use crate::{LlamaSampler, Model, Sequence};
 
@@ -39,6 +43,7 @@ impl DerefMut for ContextParams {
 pub struct Context<'a> {
     ctx: *mut llama_context,
     params: &'a ContextParams,
+    pub(crate) checked_out: Box<[Cell<bool>]>,
     model: &'a Model,
 }
 
@@ -64,6 +69,7 @@ impl<'a> Context<'a> {
 
         let ctx = Self {
             ctx,
+            checked_out: vec![Cell::new(false); params.n_seq_max as usize].into_boxed_slice(),
             params,
             model,
         };
@@ -71,9 +77,18 @@ impl<'a> Context<'a> {
         Ok(ctx)
     }
 
-    /// get a sequence by index
-    pub fn sequence(&self, index: llama_seq_id) -> Sequence<'_, 'a> {
-        Sequence::new(self, index)
+    /// Get the next available sequence.
+    ///
+    /// Automatically assigns the first unchecked sequence id.
+    /// Returns `None` if all sequences are checked out.
+    pub fn sequence(&self) -> Option<Sequence<'_, 'a>> {
+        for (i, slot) in self.checked_out.iter().enumerate() {
+            if !slot.get() {
+                slot.set(true);
+                return Some(Sequence::new(self, i as llama_seq_id));
+            }
+        }
+        None
     }
 
     /// get a reference back to the model this context is tied to
