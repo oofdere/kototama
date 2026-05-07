@@ -1,0 +1,3 @@
+## 2024-05-24 - Avoiding zero-initialization overhead in FFI
+**Learning:** When passing a mutable buffer to C functions via FFI in Rust, using `vec![0; len]` unnecessarily zero-initializes the vector. The C function typically overwrites the entire buffer anyway.
+**Action:** Use `Vec::with_capacity(len)` to allocate the buffer without zero-initializing. Pass `tokens.capacity() as i32` to the FFI function. Then, crucially, check the C function's return value for success (e.g., `n_tokens >= 0`) before calling `unsafe { tokens.set_len(n_tokens as usize) }` to expose the initialized elements safely. This prevents Undefined Behavior.
