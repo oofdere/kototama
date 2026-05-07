@@ -179,3 +179,10 @@ impl<'ctx, 'a> Index<usize> for Sequence<'ctx, 'a> {
         &self.tokens[index]
     }
 }
+
+impl Drop for Sequence<'_, '_> {
+    fn drop(&mut self) {
+        unsafe { llama_memory_seq_rm(self.ctx.get_memory(), self.id, -1, -1) };
+        self.ctx.checked_out[self.id as usize].set(false);
+    }
+}
