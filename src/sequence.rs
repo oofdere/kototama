@@ -79,7 +79,9 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
         self.kv_copy(other, range.start as i32..range.end as i32);
         other.tokens.clear();
-        other.tokens.extend_from_slice(&self.tokens[range.start..range.end]);
+        other
+            .tokens
+            .extend_from_slice(&self.tokens[range.start..range.end]);
     }
 
     /// overwrites the tokens in this sequence with the tokens from the other sequence

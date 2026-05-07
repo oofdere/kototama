@@ -1,0 +1,4 @@
+## 2024-05-07 - [MEDIUM] Fix DoS vulnerability in CString::new FFI calls
+**Vulnerability:** Denial of Service (DoS) via `unwrap()` panic when creating `CString` from untrusted input containing null bytes.
+**Learning:** In Rust FFI, calling `.unwrap()` on `std::ffi::CString::new()` is dangerous. If the input string (which might be user-provided or from an untrusted source) contains a null byte, `CString::new()` returns an error. Unwrapping this error causes the application to panic and crash, leading to a DoS vulnerability.
+**Prevention:** Always use safe error handling when converting string types for FFI. Use `.ok()` to convert the `Result` to an `Option` and safely handle the failure case (e.g., mapping to `None` or propagating the error), rather than unwrapping blindly. For example: `name.and_then(|s| std::ffi::CString::new(s).ok())`.

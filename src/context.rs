@@ -62,11 +62,7 @@ impl<'a> Context<'a> {
             return Err(());
         }
 
-        let ctx = Self {
-            ctx,
-            params,
-            model,
-        };
+        let ctx = Self { ctx, params, model };
 
         Ok(ctx)
     }
