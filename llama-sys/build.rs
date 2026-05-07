@@ -9,6 +9,7 @@ fn main() {
         .define("BUILD_SHARED_LIBS", "OFF") // static build
         .define("LLAMA_BUILD_TESTS", "OFF")
         .define("LLAMA_BUILD_EXAMPLES", "OFF")
+        .define("LLAMA_BUILD_SERVER", "OFF")
         .define("GGML_STATIC", "ON")
         .define("GGML_PERF", "OFF");
     //.define("GGML_LTO", "ON");
