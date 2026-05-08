@@ -10,6 +10,7 @@ fn main() {
         .define("LLAMA_BUILD_TESTS", "OFF")
         .define("LLAMA_BUILD_EXAMPLES", "OFF")
         .define("LLAMA_BUILD_SERVER", "OFF")
+        .define("LLAMA_BUILD_TOOLS", "OFF")
         .define("GGML_STATIC", "ON")
         .define("GGML_PERF", "OFF");
     //.define("GGML_LTO", "ON");
@@ -30,6 +31,11 @@ fn main() {
         config.define("GGML_VULKAN", "ON");
     }
 
+    #[cfg(feature = "cuda")]
+    {
+        config.define("LLAMA_CUDA", "ON");
+    }
+
     #[cfg(all(target_os = "macos"))]
     {
         config.define("GGML_METAL", "ON");
@@ -44,7 +50,7 @@ fn main() {
     // Link the libraries (order matters - dependencies after dependents)
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=llama");
-    //println!("cargo:rustc-link-lib=static=llama-common");
+    println!("cargo:rustc-link-lib=static=llama-common");
 
     #[cfg(target_os = "macos")]
     {
@@ -66,6 +72,15 @@ fn main() {
         {
             println!("cargo:rustc-link-lib=static:+whole-archive=ggml-vulkan");
             println!("cargo:rustc-link-lib=vulkan");
+        }
+
+        #[cfg(feature = "cuda")]
+        {
+            println!("cargo:rustc-link-lib=static:+whole-archive=ggml-cuda");
+            println!("cargo:rustc-link-lib=cudart");
+            println!("cargo:rustc-link-lib=cuda");
+            println!("cargo:rustc-link-lib=cublas");
+            println!("cargo:rustc-link-search=native=/opt/cuda/lib64");
         }
 
         println!("cargo:rustc-link-lib=gomp");

@@ -16,6 +16,7 @@ vcpkg = "0.2.15"
 default = []
 native = []
 vulkan = []
+cuda = []
 
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
