@@ -142,7 +142,14 @@ fn main() {
     println!("tokens_list.len() = {}", tokens_list.len());
 
     for (i, token) in tokens_list.iter().enumerate() {
-        common::batch_add(batch.as_raw_mut(), *token, i as i32, seq_ids.clone(), false).unwrap();
+        common::batch_add(
+            batch.as_raw_mut(),
+            *token,
+            i as i32,
+            &seq_ids.clone(),
+            false,
+        )
+        .unwrap();
     }
     assert!(batch.n_tokens == tokens_list.len() as i32);
 
@@ -159,7 +166,7 @@ fn main() {
             &mut batch,
             decoder_start_token_id,
             0,
-            seq_ids.clone(),
+            &seq_ids.clone(),
             false,
         )
         .unwrap();
@@ -227,7 +234,7 @@ fn main() {
             i_batch[i as usize] = batch.n_tokens;
 
             // push this new token for next evaluation
-            common::batch_add(&mut batch, new_token_id, n_cur, vec![i], true).unwrap();
+            common::batch_add(&mut batch, new_token_id, n_cur, &vec![i], true).unwrap();
 
             n_decode += 1;
         }
