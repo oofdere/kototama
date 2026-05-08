@@ -1,0 +1,4 @@
+## 2024-05-14 - Fix FFI Panic in CString Initialization
+**Vulnerability:** The application was vulnerable to a Denial of Service (DoS) attack where an untrusted input string containing null bytes could cause the application to panic and crash during the `CString::new(s).unwrap()` call in `src/model.rs`.
+**Learning:** `CString::new()` returns a `Result` and will panic if `.unwrap()` is used on a string containing internal null bytes. Since this input crosses the Foreign Function Interface (FFI) boundary, using safe error handling is crucial.
+**Prevention:** Avoid using `.unwrap()` on `CString::new()` when processing potentially untrusted input. Use safe error handling constructs like `.ok().flatten()` or `.and_then(|s| std::ffi::CString::new(s).ok())` to gracefully handle strings with null bytes by filtering them or returning safe defaults.
