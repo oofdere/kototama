@@ -95,12 +95,26 @@ impl Model {
     pub fn desc(&self) -> String {
         // get length of name
         let len = unsafe { llama_model_desc(self.model, null_mut(), 0) };
+        if len <= 0 {
+            return String::new();
+        }
 
-        let mut buf = vec![c_char::default(); len as usize];
-        unsafe { llama_model_desc(self.model, buf.as_mut_ptr(), len.try_into().unwrap()) };
-        // throw it in a string
-        let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
-        cstr.to_string_lossy().to_string()
+        let buf_size = len as usize + 1;
+        let mut buf = Vec::<u8>::with_capacity(buf_size);
+        let n = unsafe {
+            llama_model_desc(
+                self.model,
+                buf.as_mut_ptr() as *mut c_char,
+                buf_size.try_into().unwrap(),
+            )
+        };
+        if n <= 0 {
+            return String::new();
+        }
+
+        unsafe { buf.set_len(n as usize) };
+
+        String::from_utf8_lossy(&buf).to_string()
     }
 
     /// Returns true if the model contains a decoder that requires llama_decode() call
@@ -184,19 +198,21 @@ impl Model {
                 parse_special,
             )
         };
-        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
+        let mut tokens = Vec::with_capacity(len as usize); // look into using smallvec/stack array
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32, // is this needed it's a vec
+                len,
                 add_special,
                 parse_special,
             )
         };
-        tokens.truncate(n_tokens as usize);
+        if n_tokens >= 0 {
+            unsafe { tokens.set_len(n_tokens as usize) };
+        }
         tokens
     }
 }

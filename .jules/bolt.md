@@ -1,0 +1,3 @@
+## 2024-05-18 - FFI Vector Pre-allocation Overhead
+**Learning:** Avoid zero-initializing vectors (e.g. `vec![0; len]`) when calling C functions via FFI that are guaranteed to overwrite the entire buffer. Zero-initialization adds unnecessary O(N) overhead. Use `Vec::with_capacity(len)` instead.
+**Action:** When bridging Rust and C APIs, allocate buffers with `Vec::with_capacity(len)`, pass the mutable pointer to C, and then carefully call `vec.set_len(actual_len)` ONLY after strictly validating the return value (checking for negative error codes) to prevent undefined behavior. When dealing with `CStr`, ensure safe null-termination.
