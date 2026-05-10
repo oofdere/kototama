@@ -1,0 +1,3 @@
+## 2024-05-17 - Avoid zero-initialization for C string buffers
+**Learning:** When passing a `Vec` to a C function that fully overwrites its content (like `llama_tokenize`), zero-initializing the vector using `vec![0i32; len]` introduces an unnecessary O(N) performance overhead. We can allocate uninitialized capacity using `Vec::with_capacity(len)` instead.
+**Action:** When replacing zero-initialization with `Vec::with_capacity(len)` and `vec.set_len(len)`, ALWAYS check the C function's return code first (e.g. `if n >= 0 { tokens.set_len(n as usize); }`). If the C function fails and we call `set_len()` on an uninitialized region, we risk Undefined Behavior and uninitialized memory access.
