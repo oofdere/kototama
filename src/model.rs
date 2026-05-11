@@ -79,7 +79,8 @@ impl Model {
 
     /// gets the chat template of the specified name, or the default if None
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
-        let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
+        // Prevent panic on null bytes from untrusted strings
+        let name_cstr = name.and_then(|s| std::ffi::CString::new(s).ok());
         let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
         let str = unsafe { llama_model_chat_template(self.model, name_ptr) };
         if str.is_null() {
@@ -96,11 +97,11 @@ impl Model {
         // get length of name
         let len = unsafe { llama_model_desc(self.model, null_mut(), 0) };
 
-        let mut buf = vec![c_char::default(); len as usize];
-        unsafe { llama_model_desc(self.model, buf.as_mut_ptr(), len.try_into().unwrap()) };
-        // throw it in a string
-        let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
-        cstr.to_string_lossy().to_string()
+        // allocate len + 1 for null terminator to prevent string truncation
+        let mut buf = vec![0u8; (len + 1) as usize];
+        unsafe { llama_model_desc(self.model, buf.as_mut_ptr() as *mut c_char, (len + 1).try_into().unwrap()) };
+        // throw it in a string safely
+        String::from_utf8_lossy(&buf[..len as usize]).to_string()
     }
 
     /// Returns true if the model contains a decoder that requires llama_decode() call
@@ -173,6 +174,11 @@ impl Model {
     /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so.
     /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
+        // Prevent integer overflow when text length is cast to i32
+        if text.len() > i32::MAX as usize {
+            return vec![];
+        }
+
         let len = -unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
