@@ -1,0 +1,3 @@
+## 2024-05-24 - Avoid Zero-Initializing FFI Buffers
+**Learning:** When interacting with FFI functions that completely overwrite a buffer (like `llama_tokenize`), zero-initializing vectors (e.g., `vec![0; len]`) adds unnecessary overhead.
+**Action:** Use `Vec::with_capacity(len)` combined with `vec.set_len(n)` instead. However, ALWAYS validate the C function's return value (e.g., check for negative error codes `if n < 0`) before calling `set_len()` to prevent Undefined Behavior by exposing uninitialized memory.

@@ -184,19 +184,23 @@ impl Model {
                 parse_special,
             )
         };
-        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
+        // Optimization: use Vec::with_capacity to avoid zero-initializing the buffer
+        let mut tokens = Vec::with_capacity(len as usize); // look into using smallvec/stack array
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32, // is this needed it's a vec
+                len as i32,
                 add_special,
                 parse_special,
             )
         };
-        tokens.truncate(n_tokens as usize);
+        if n_tokens < 0 {
+            return Vec::new();
+        }
+        unsafe { tokens.set_len(n_tokens as usize) };
         tokens
     }
 }
