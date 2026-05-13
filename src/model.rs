@@ -223,6 +223,10 @@ mod tests {
     #[test]
     fn load_from_file() {
         let path = std::env::var("TEST_MODEL_PATH").unwrap_or_else(|_| "./model.gguf".to_string());
+        if !std::path::Path::new(&path).exists() {
+            println!("Skipping test: model file not found");
+            return;
+        }
         let params = ModelParams::new();
         let model = Model::load_from_file(&path, params).unwrap();
         assert!(!model.vocab.is_null());
