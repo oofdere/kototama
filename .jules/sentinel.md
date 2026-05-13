@@ -1,0 +1,4 @@
+## 2024-05-13 - [Safely Casting Lengths and Handling CStrings in FFI]
+**Vulnerability:** Untrusted string input could cause `CString::new(s).unwrap()` panics (DoS) from null bytes, and casting `text.len() as i32` could lead to integer overflow/buffer over-read with very long strings passed to the `llama.cpp` C API.
+**Learning:** In Rust FFI, never use `.unwrap()` on `CString::new()` with externally provided strings. Furthermore, converting `usize` (like `.len()`) directly to `i32` for a C function without validation can silently truncate or become negative, causing memory safety issues in the C side.
+**Prevention:** Always use safe error handling (e.g. `and_then(|s| std::ffi::CString::new(s).ok())` or mapping errors) for CString conversion. Use `try_into().unwrap_or(i32::MAX)` (or similar limits) when converting `usize` length for C-interop.
