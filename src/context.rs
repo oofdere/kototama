@@ -81,7 +81,7 @@ impl<'a> Context<'a> {
     ///
     /// Automatically assigns the first unchecked sequence id.
     /// Returns `None` if all sequences are checked out.
-    pub fn sequence(&mut self) -> Option<Sequence<'_, 'a>> {
+    pub fn sequence(&self) -> Option<Sequence<'_, 'a>> {
         for (i, slot) in self.checked_out.iter().enumerate() {
             if !slot.get() {
                 slot.set(true);

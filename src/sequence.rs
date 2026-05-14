@@ -1,12 +1,13 @@
 use crate::{common::*, Batch, Context, LlamaSampler};
 use llama_sys::*;
-use std::ops::{Index, Range};
+use std::{mem::ManuallyDrop, ops::{Index, Range}};
 
 pub struct Sequence<'ctx, 'a> {
-    ctx: &'a Context<'ctx>,
+    ctx: ManuallyDrop<&'a Context<'ctx>>,
     id: llama_seq_id,
     batch: Batch,
     tokens: Vec<llama_token>,
+    logits: Vec<f32>
 }
 
 impl<'ctx, 'a> Sequence<'ctx, 'a> {
@@ -19,11 +20,16 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         }
 
         Self {
-            ctx,
+            ctx: ManuallyDrop::new(ctx),
             id,
             batch,
             tokens: Vec::new(),
+            logits: Vec::new(),
         }
+    }
+
+    pub fn logits(&self) -> &[f32] {
+        &self.logits
     }
 
     pub fn push(&mut self, token: llama_token) {
@@ -31,6 +37,8 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         batch_clear(&mut self.batch);
         batch_add(&mut self.batch, token, pos, &[self.id], true).unwrap();
         self.ctx.decode(*self.batch).unwrap();
+        let n_vocab = self.ctx.model().n_tokens();
+        self.logits = self.ctx.get_logits_ith(0, n_vocab as usize).to_vec();
         self.tokens.push(token);
     }
 
@@ -58,23 +66,6 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
 
     pub fn get(&self, index: usize) -> Option<llama_token> {
         self.tokens.get(index).copied()
-    }
-
-    pub fn get_logits(&mut self, idx: i32) -> llama_token {
-        let pos = (self.tokens.len() - 1) as i32;
-        let last_token = self.tokens.last().unwrap();
-        batch_clear(&mut self.batch);
-        batch_add(&mut self.batch, *last_token, pos, &[self.id], true);
-        self.ctx.decode(*self.batch).unwrap();
-        
-        let n_vocab = self.ctx.model().n_tokens();
-        let logits = self.ctx.get_logits_ith(0, n_vocab as usize);
-        logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(i, _)| i as llama_token)
-            .unwrap()
     }
 
     /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
