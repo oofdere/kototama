@@ -81,7 +81,7 @@ impl<'a> Context<'a> {
     ///
     /// Automatically assigns the first unchecked sequence id.
     /// Returns `None` if all sequences are checked out.
-    pub fn sequence(&self) -> Option<Sequence<'_, 'a>> {
+    pub fn sequence(&mut self) -> Option<Sequence<'_, 'a>> {
         for (i, slot) in self.checked_out.iter().enumerate() {
             if !slot.get() {
                 slot.set(true);
@@ -89,6 +89,11 @@ impl<'a> Context<'a> {
             }
         }
         None
+    }
+
+    // get the number of slots available to claim through `sequence()`
+    pub fn free_slots(&self) -> usize {
+        self.checked_out.iter().filter(|slot| !slot.get()).count()
     }
 
     /// get a reference back to the model this context is tied to

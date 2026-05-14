@@ -1,4 +1,4 @@
-use crate::{common::*, Batch, Context};
+use crate::{common::*, Batch, Context, LlamaSampler};
 use llama_sys::*;
 use std::ops::{Index, Range};
 
@@ -60,6 +60,23 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         self.tokens.get(index).copied()
     }
 
+    pub fn get_logits(&mut self, idx: i32) -> llama_token {
+        let pos = (self.tokens.len() - 1) as i32;
+        let last_token = self.tokens.last().unwrap();
+        batch_clear(&mut self.batch);
+        batch_add(&mut self.batch, *last_token, pos, &[self.id], true);
+        self.ctx.decode(*self.batch).unwrap();
+        
+        let n_vocab = self.ctx.model().n_tokens();
+        let logits = self.ctx.get_logits_ith(0, n_vocab as usize);
+        logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i as llama_token)
+            .unwrap()
+    }
+
     /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
     ///
     /// Returns false if a partial sequence cannot be removed. Removing a whole sequence never fails.
@@ -79,7 +96,9 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
         self.kv_copy(other, range.start as i32..range.end as i32);
         other.tokens.clear();
-        other.tokens.extend_from_slice(&self.tokens[range.start..range.end]);
+        other
+            .tokens
+            .extend_from_slice(&self.tokens[range.start..range.end]);
     }
 
     /// overwrites the tokens in this sequence with the tokens from the other sequence
