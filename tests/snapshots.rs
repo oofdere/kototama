@@ -41,10 +41,8 @@ fn snapshot_tokenize_numbers() {
 // text — so the snapshot stays valid even if token_to_piece rendering changes.
 // Run `cargo insta review` after bumping llama.cpp to accept updated snapshots.
 
-fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
-    let Some((model, params)) = common::try_load_model_and_context() else {
-        return vec![];
-    };
+fn greedy_generate(prompt: &str, n_tokens: usize) -> Option<Vec<i32>> {
+    let (model, params) = common::try_load_model_and_context()?;
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
 
@@ -66,23 +64,17 @@ fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
         generated.push(token);
         seq.push(token);
     }
-    generated
+    Some(generated)
 }
 
 #[test]
 fn snapshot_generate_10_tokens() {
-    let tokens = greedy_generate("Once upon a time", 10);
-    if tokens.is_empty() {
-        return; // model not available, skip
-    }
+    let Some(tokens) = greedy_generate("Once upon a time", 10) else { return };
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_generate_numbers() {
-    let tokens = greedy_generate("1, 2, 3,", 8);
-    if tokens.is_empty() {
-        return;
-    }
+    let Some(tokens) = greedy_generate("1, 2, 3,", 8) else { return };
     insta::assert_yaml_snapshot!(tokens);
 }

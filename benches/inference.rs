@@ -56,9 +56,8 @@ fn bench_decode_single_token(c: &mut Criterion) {
                 let ctx_ref: &'static Context<'static> =
                     unsafe { &*(Box::into_raw(ctx) as *const _) };
                 let mut seq = ctx_ref.sequence().unwrap();
-                if let Some(bos) = model.bos_token() {
-                    seq.push(bos);
-                }
+                let seed_token = model.bos_token().unwrap_or(1);
+                seq.push(seed_token);
                 (ctx_ref as *const Context, seq)
             },
             |(ctx_ptr, mut seq)| {
@@ -83,6 +82,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
     let model = load_model();
     let ctx_params = make_ctx_params();
     let prompt_tokens = model.tokenize("Once upon a time", true, false);
+    assert!(!prompt_tokens.is_empty(), "tokenize must produce at least one token with add_bos=true");
 
     c.bench_function("generate_10_tokens", |b| {
         b.iter_batched(
