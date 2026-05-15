@@ -38,7 +38,9 @@ fn main() {
     let model = Model::load_from_file(&model_path, model_params).expect("Failed to load model");
     println!("Model: {}", model.desc());
 
-    let _vocab = model.vocab; // vocab is already in model struct and gets used automatically when needed
+    if model.has_encoder() {
+        panic!("Model has encoder, which is not supported in this example");
+    }
 
     // Tokenize the prompt
     let prompt_tokens = model.tokenize(&prompt, true, true);
@@ -46,15 +48,17 @@ fn main() {
 
     // Initialize the context
     let mut ctx_params = ContextParams::new();
-    // n_ctx is the context size
-    ctx_params.n_ctx = (n_prompt + n_predict as usize - 1) as u32;
-    // n_batch is the maximum number of tokens that can be processed in a single call to llama_decode
-    ctx_params.n_batch = n_prompt as u32;
-    // enable performance counters
-    ctx_params.no_perf = false;
+    {
+        // n_ctx is the context size
+        ctx_params.n_ctx = (n_prompt + n_predict as usize - 1) as u32;
+        // n_batch is the maximum number of tokens that can be processed in a single call to llama_decode
+        // 1 is used here because the implementation currently only supports single-token decoding
+        ctx_params.n_batch = 1; // n_prompt as u32;
+        // enable performance counters
+        ctx_params.no_perf = false;
+    }
 
-    let mut ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
-    println!("Context initialized");
+    let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
 
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
     seq.extend(&prompt_tokens);
@@ -68,7 +72,8 @@ fn main() {
 
     // Main loop
     for _ in 0..n_predict {
-        let (token, _) = seq.logits()
+        let (token, _) = seq
+            .logits()
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.total_cmp(b))
@@ -77,6 +82,7 @@ fn main() {
             break;
         }
         print!("{}", model.token_to_piece(token as i32).unwrap());
+        std::io::stdout().flush().ok();
         seq.push(token as i32);
     }
 
