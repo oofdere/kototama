@@ -47,3 +47,4 @@ impl Drop for Batch {
         }
     }
 }
+
