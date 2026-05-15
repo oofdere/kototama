@@ -1,4 +1,5 @@
 use rusty_llama::{ContextParams, Model, ModelParams};
+use std::sync::Once;
 
 /// Path to the test model file. Reads `RUSTY_LLAMA_TEST_MODEL`, falling back
 /// to `./test-models/TinyStories-656K.Q2_K.gguf` relative to the workspace root.
@@ -7,12 +8,24 @@ pub fn model_path() -> String {
         .unwrap_or_else(|_| "./test-models/TinyStories-656K.Q2_K.gguf".to_string())
 }
 
-/// Load the test model. Panics if the file doesn't exist.
-pub fn load_model() -> Model {
-    let path = model_path();
-    let mut params = ModelParams::new();
-    params.n_gpu_layers = 0; // CPU-only for reproducibility in CI
-    Model::load_from_file(&path, params).expect("failed to load model")
+/// Shared model instance loaded once and reused across all tests.
+/// Safe because tests run with --test-threads=1 (single-threaded).
+#[allow(static_mut_refs)]
+static mut SHARED_MODEL: Option<Model> = None;
+static INIT: Once = Once::new();
+
+/// Load the test model. Returns a reference to the shared model instance.
+#[allow(static_mut_refs)]
+pub fn load_model() -> &'static Model {
+    unsafe {
+        INIT.call_once(|| {
+            let path = model_path();
+            let mut params = ModelParams::new();
+            params.n_gpu_layers = 0; // CPU-only for reproducibility in CI
+            SHARED_MODEL = Some(Model::load_from_file(&path, params).expect("failed to load model"));
+        });
+        SHARED_MODEL.as_ref().expect("model not initialized")
+    }
 }
 
 /// Build a minimal `ContextParams` suitable for testing (small context, CPU).
@@ -28,7 +41,7 @@ pub fn test_ctx_params() -> ContextParams {
 
 /// Convenience: load model + create context.
 #[allow(dead_code)]
-pub fn load_model_and_context() -> (Model, ContextParams) {
+pub fn load_model_and_context() -> (&'static Model, ContextParams) {
     let model = load_model();
     let params = test_ctx_params();
     (model, params)

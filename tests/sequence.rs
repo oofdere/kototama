@@ -2,7 +2,7 @@ mod common;
 
 use rusty_llama::Context;
 
-fn setup() -> (rusty_llama::Model, rusty_llama::ContextParams) {
+fn setup() -> (&'static rusty_llama::Model, rusty_llama::ContextParams) {
     common::load_model_and_context()
 }
 
