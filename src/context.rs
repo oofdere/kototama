@@ -160,13 +160,22 @@ impl<'a> Context<'a> {
     /// position in the batch. The underlying llama.cpp API signals these cases
     /// by returning a null pointer, so checking for null here is required to
     /// avoid undefined behavior from constructing a slice over a null pointer.
-    pub fn get_logits_ith(&self, idx: i32, n_vocab: usize) -> Option<&[f32]> {
+    ///
+    /// The slice length is derived from the model's vocabulary size, which is
+    /// the layout llama.cpp uses for the logits buffer. Taking the length from
+    /// the model rather than the caller keeps this a sound safe API: a caller
+    /// supplied length larger than the real buffer would let safe code read
+    /// out of bounds.
+    pub fn get_logits_ith(&self, idx: i32) -> Option<&[f32]> {
         let ptr = unsafe { llama_get_logits_ith(self.ctx, idx) };
         if ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { std::slice::from_raw_parts(ptr, n_vocab) })
+            return None;
         }
+        let n_vocab = self.model.n_tokens();
+        if n_vocab <= 0 {
+            return None;
+        }
+        Some(unsafe { std::slice::from_raw_parts(ptr, n_vocab as usize) })
     }
 
     /// Sample and accept a token from the idx-th output of the last evaluation

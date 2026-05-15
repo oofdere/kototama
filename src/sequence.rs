@@ -37,10 +37,9 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         batch_clear(&mut self.batch);
         batch_add(&mut self.batch, token, pos, &[self.id], true).unwrap();
         self.ctx.decode(*self.batch).unwrap();
-        let n_vocab = self.ctx.model().n_tokens();
         self.logits = self
             .ctx
-            .get_logits_ith(0, n_vocab as usize)
+            .get_logits_ith(0)
             .expect("logits should be available for a freshly decoded token")
             .to_vec();
         self.tokens.push(token);
