@@ -3,13 +3,13 @@ mod common;
 #[test]
 fn bos_token_some() {
     let model = common::load_model();
-    assert!(model.bos_token().is_some(), "SmolLM should have a BOS token");
+    assert!(model.bos_token().is_some(), "TinyStories should have a BOS token");
 }
 
 #[test]
 fn eos_token_some() {
     let model = common::load_model();
-    assert!(model.eos_token().is_some(), "SmolLM should have an EOS token");
+    assert!(model.eos_token().is_some(), "TinyStories should have an EOS token");
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn is_eog_eos() {
 #[test]
 fn is_not_eog_regular_token() {
     let model = common::load_model();
-    // Token 0 is typically BOS or a normal token, not EOG, for SmolLM
+    // Token 0 is typically BOS or a normal token, not EOG, for TinyStories
     if let Some(bos) = model.bos_token() {
         // BOS is control but not always EOG — just verify the call doesn't crash
         let _ = model.is_eog(bos);

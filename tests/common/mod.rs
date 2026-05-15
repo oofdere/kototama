@@ -1,10 +1,10 @@
 use rusty_llama::{ContextParams, Model, ModelParams};
 
 /// Path to the test model file. Reads `RUSTY_LLAMA_TEST_MODEL`, falling back
-/// to `./test-models/smollm-135m.gguf` relative to the workspace root.
+/// to `./test-models/TinyStories-656K.Q2_K.gguf` relative to the workspace root.
 pub fn model_path() -> String {
     std::env::var("RUSTY_LLAMA_TEST_MODEL")
-        .unwrap_or_else(|_| "./test-models/smollm-135m.gguf".to_string())
+        .unwrap_or_else(|_| "./test-models/TinyStories-656K.Q2_K.gguf".to_string())
 }
 
 /// Load the test model. Panics if the file doesn't exist.

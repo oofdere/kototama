@@ -10,7 +10,7 @@ cargo build
 
 Tests live entirely in `tests/`. There are no inline `#[cfg(test)]` blocks in source files.
 
-A test model is bundled at `./test-models/smollm-135m.gguf`. To use a different model, set `RUSTY_LLAMA_TEST_MODEL`.
+A test model is bundled at `./test-models/TinyStories-656K.Q2_K.gguf`. To use a different model, set `RUSTY_LLAMA_TEST_MODEL`.
 
 ### Run tests
 
@@ -37,7 +37,7 @@ After bumping llama.cpp, retake snapshots the same way and review the diff.
 cargo bench
 ```
 
-To use a different model, set `RUSTY_LLAMA_BENCH_MODEL`. Falls back to `RUSTY_LLAMA_TEST_MODEL`, then `./test-models/smollm-135m.gguf`.
+To use a different model, set `RUSTY_LLAMA_BENCH_MODEL`. Falls back to `RUSTY_LLAMA_TEST_MODEL`, then `./test-models/TinyStories-656K.Q2_K.gguf`.
 
 HTML reports are written to `target/criterion/`.
 
@@ -55,13 +55,14 @@ Then:
 cargo llvm-cov -- --test-threads=1
 # HTML report:
 cargo llvm-cov --html -- --test-threads=1
+cargo llvm-cov --html -- --test-threads=1
 # opens target/llvm-cov/html/index.html
 ```
 
 ## Model used for testing
 
-The canonical test model is **SmolLM-135M Q2_K** (~540KB):
+The canonical test model is **TinyStories-656K Q2_K** (~540KB):
 
-- HuggingFace: `HuggingFaceTB/SmolLM-135M-GGUF` → `SmolLM-135M.Q2_K.gguf`
-- Bundled at `./test-models/smollm-135m.gguf`
+- HuggingFace: https://huggingface.co/mradermacher/TinyStories-656K-GGUF
+- Bundled at `./test-models/TinyStories-656K.Q2_K.gguf`
 - Override with `RUSTY_LLAMA_TEST_MODEL` if needed

@@ -6,7 +6,7 @@ use rusty_llama::{Context, ContextParams, Model, ModelParams};
 fn bench_model_path() -> String {
     std::env::var("RUSTY_LLAMA_BENCH_MODEL")
         .or_else(|_| std::env::var("RUSTY_LLAMA_TEST_MODEL"))
-        .unwrap_or_else(|_| "./test-models/smollm-135m.gguf".to_string())
+        .unwrap_or_else(|_| "./test-models/TinyStories-656K.Q2_K.gguf".to_string())
 }
 
 fn load_model() -> Model {

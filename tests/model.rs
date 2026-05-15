@@ -21,7 +21,7 @@ fn n_tokens_positive() {
 
 #[test]
 fn has_decoder() {
-    // SmolLM is a decoder-only model
+    // TinyStories is a decoder-only model
     let model = common::load_model();
     assert!(model.has_decoder());
 }
@@ -62,7 +62,7 @@ fn tokenize_empty_text() {
 #[test]
 fn tokenize_roundtrip() {
     let model = common::load_model();
-    let text = "Hello, world!";
+    let text = " Hello, world!";
     let tokens = model.tokenize(text, false, false);
     let reconstructed: String = tokens
         .iter()
@@ -90,6 +90,6 @@ fn decoder_start_token_none_for_decoder_only() {
 #[test]
 fn chat_template_default() {
     let model = common::load_model();
-    // SmolLM may or may not have a chat template; just verify it doesn't crash
+    // TinyStories may or may not have a chat template; just verify it doesn't crash
     let _ = model.chat_template(None);
 }
