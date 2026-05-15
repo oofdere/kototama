@@ -44,13 +44,4 @@ pub extern "C" fn llama_log_callback(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn init() {
-        let _backend = Backend::acquire();
-        // If we get here without crashing, the backend initialized successfully
-    }
-}

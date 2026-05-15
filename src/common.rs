@@ -39,3 +39,4 @@ pub fn batch_add(
 pub fn batch_clear(batch: &mut llama_batch) {
     batch.n_tokens = 0;
 }
+

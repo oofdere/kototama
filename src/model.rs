@@ -207,20 +207,3 @@ impl Drop for Model {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn init_params() {
-        let _params = ModelParams::new();
-    }
-
-    #[test]
-    fn load_from_file() {
-        let path = std::env::var("TEST_MODEL_PATH").unwrap_or_else(|_| "./model.gguf".to_string());
-        let params = ModelParams::new();
-        let model = Model::load_from_file(&path, params).unwrap();
-        assert!(!model.vocab.is_null());
-    }
-}

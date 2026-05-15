@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "test": "cargo test -- --test-threads=1",
+    "bench": "cargo bench",
+    "take-snapshots": "INSTA_UPDATE=new cargo test -- --test-threads=1",
+    "example": "cargo run --example"
+  }
+}

@@ -1,0 +1,14 @@
+---
+source: tests/snapshots.rs
+expression: tokens
+---
+- 313
+- 598
+- 303
+- 1049
+- 1468
+- 267
+- 628
+- 333
+- 921
+- 887

@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: tokens
+---
+- 80
+- 1443
+- 410
+- 555
+- 4
