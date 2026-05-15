@@ -133,3 +133,83 @@ fn copy_to() {
     src.copy_to(&mut dst, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
 }
+
+#[test]
+fn multiple_sequences_independent() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq1 = ctx.sequence().unwrap();
+    let mut seq2 = ctx.sequence().unwrap();
+    let tokens1 = model.tokenize("hello", false, false);
+    let tokens2 = model.tokenize("world", false, false);
+    seq1.extend(&tokens1);
+    seq2.extend(&tokens2);
+    assert_eq!(seq1.tokens(), tokens1.as_slice());
+    assert_eq!(seq2.tokens(), tokens2.as_slice());
+    assert_ne!(seq1.tokens(), seq2.tokens());
+}
+
+#[test]
+fn multiple_sequences_generate_different_logits() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq1 = ctx.sequence().unwrap();
+    let mut seq2 = ctx.sequence().unwrap();
+    let tokens1 = model.tokenize("hello", false, false);
+    let tokens2 = model.tokenize("world", false, false);
+    seq1.extend(&tokens1);
+    seq2.extend(&tokens2);
+    // Verify that the final logits differ between sequences
+    assert_ne!(seq1.logits(), seq2.logits());
+}
+
+#[test]
+fn free_slots_decreases_with_checkout() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let initial_slots = ctx.free_slots();
+    let _seq1 = ctx.sequence().unwrap();
+    assert_eq!(ctx.free_slots(), initial_slots - 1);
+    let _seq2 = ctx.sequence().unwrap();
+    assert_eq!(ctx.free_slots(), initial_slots - 2);
+}
+
+#[test]
+fn sequence_checkout_up_to_n_seq_max() {
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.n_seq_max = 3;
+    let ctx = Context::new(&model, &params).unwrap();
+    let _seq1 = ctx.sequence().unwrap();
+    let _seq2 = ctx.sequence().unwrap();
+    let _seq3 = ctx.sequence().unwrap();
+    assert!(ctx.sequence().is_none());
+}
+
+#[test]
+fn dropping_sequence_frees_slot() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let initial_slots = ctx.free_slots();
+    {
+        let _seq = ctx.sequence().unwrap();
+        assert_eq!(ctx.free_slots(), initial_slots - 1);
+    }
+    assert_eq!(ctx.free_slots(), initial_slots);
+    let _new_seq = ctx.sequence().unwrap();
+}
+
+#[test]
+fn copy_from() {
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hi", false, false);
+    src.extend(&tokens);
+    dst.extend(&tokens);
+    dst.copy_from(&src, 0..tokens.len());
+    assert_eq!(dst.tokens(), src.tokens());
+}
