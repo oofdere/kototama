@@ -31,7 +31,7 @@ fn snapshot_tokenize_multiline() {
 #[test]
 fn snapshot_tokenize_numbers() {
     let model = common::load_model();
-    let tokens = model.tokenize("1 + 1 = 2", false, false);
+    let tokens = model.tokenize("1, 2, 3, 4, 5", false, false);
     insta::assert_yaml_snapshot!(tokens);
 }
 
