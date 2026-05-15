@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "test": "cargo test -- --test-threads=1",
+    "test-with-model": "cargo test --features require-model -- --test-threads=1",
+    "take-snapshots": "INSTA_UPDATE=new cargo test -- --test-threads=1",
+    "bench": "cargo bench",
+    "example": "cargo run --example"
+  }
+}
