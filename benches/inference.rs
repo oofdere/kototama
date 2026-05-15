@@ -1,5 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rusty_llama::{Context, ContextParams, Model, ModelParams, Sampler, SamplerChain, SamplerChainParams};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
+use rusty_llama::{Context, ContextParams, Model, ModelParams};
 
 fn bench_model_path() -> String {
     std::env::var("RUSTY_LLAMA_BENCH_MODEL")
@@ -47,16 +49,19 @@ fn bench_decode_single_token(c: &mut Criterion) {
     c.bench_function("decode_single_token", |b| {
         b.iter_batched(
             || {
-                // Setup: create a fresh context and prime with BOS
-                let ctx = Context::new(&model, &ctx_params).unwrap();
-                let mut seq = ctx.sequence().unwrap();
+                // Leak ctx so that Sequence (which borrows it) can be returned
+                // from this closure. The Box is recovered and dropped in the
+                // measurement closure via `Box::from_raw`.
+                let ctx = Box::new(Context::new(&model, &ctx_params).unwrap());
+                let ctx_ref: &'static Context<'static> =
+                    unsafe { &*(Box::into_raw(ctx) as *const _) };
+                let mut seq = ctx_ref.sequence().unwrap();
                 if let Some(bos) = model.bos_token() {
                     seq.push(bos);
                 }
-                (ctx, seq)
+                (ctx_ref as *const Context, seq)
             },
-            |(_ctx, mut seq)| {
-                // Measure: push one token (includes decode + logit copy)
+            |(ctx_ptr, mut seq)| {
                 let token = seq
                     .logits()
                     .iter()
@@ -65,6 +70,9 @@ fn bench_decode_single_token(c: &mut Criterion) {
                     .map(|(i, _)| i as i32)
                     .unwrap();
                 seq.push(black_box(token));
+                // Drop seq first (releases the borrow on ctx), then ctx
+                drop(seq);
+                unsafe { drop(Box::from_raw(ctx_ptr as *mut Context)) };
             },
             criterion::BatchSize::SmallInput,
         )
@@ -79,12 +87,14 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
     c.bench_function("generate_10_tokens", |b| {
         b.iter_batched(
             || {
-                let ctx = Context::new(&model, &ctx_params).unwrap();
-                let mut seq = ctx.sequence().unwrap();
+                let ctx = Box::new(Context::new(&model, &ctx_params).unwrap());
+                let ctx_ref: &'static Context<'static> =
+                    unsafe { &*(Box::into_raw(ctx) as *const _) };
+                let mut seq = ctx_ref.sequence().unwrap();
                 seq.extend(&prompt_tokens);
-                (ctx, seq)
+                (ctx_ref as *const Context, seq)
             },
-            |(_ctx, mut seq)| {
+            |(ctx_ptr, mut seq)| {
                 for _ in 0..10 {
                     let token = seq
                         .logits()
@@ -98,6 +108,8 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
                     }
                     seq.push(black_box(token));
                 }
+                drop(seq);
+                unsafe { drop(Box::from_raw(ctx_ptr as *mut Context)) };
             },
             criterion::BatchSize::SmallInput,
         )
