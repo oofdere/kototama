@@ -68,7 +68,7 @@ fn tokenize_roundtrip() {
         .iter()
         .map(|&t| model.token_to_piece(t).unwrap())
         .collect();
-    assert_eq!(reconstructed.trim(), text);
+    assert_eq!(reconstructed, text);
 }
 
 #[test]
