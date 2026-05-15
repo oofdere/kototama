@@ -9,28 +9,28 @@ use rusty_llama::Context;
 
 #[test]
 fn snapshot_tokenize_hello_world() {
-    let Some(model) = common::try_load_model() else { return };
+    let model = common::load_model();
     let tokens = model.tokenize("Hello, world!", false, false);
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_tokenize_with_bos() {
-    let Some(model) = common::try_load_model() else { return };
+    let model = common::load_model();
     let tokens = model.tokenize("Hello, world!", true, false);
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_tokenize_multiline() {
-    let Some(model) = common::try_load_model() else { return };
+    let model = common::load_model();
     let tokens = model.tokenize("line one\nline two\nline three", false, false);
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_tokenize_numbers() {
-    let Some(model) = common::try_load_model() else { return };
+    let model = common::load_model();
     let tokens = model.tokenize("1 + 1 = 2", false, false);
     insta::assert_yaml_snapshot!(tokens);
 }
@@ -41,8 +41,8 @@ fn snapshot_tokenize_numbers() {
 // text — so the snapshot stays valid even if token_to_piece rendering changes.
 // Run `cargo insta review` after bumping llama.cpp to accept updated snapshots.
 
-fn greedy_generate(prompt: &str, n_tokens: usize) -> Option<Vec<i32>> {
-    let (model, params) = common::try_load_model_and_context()?;
+fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
+    let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
 
@@ -64,17 +64,17 @@ fn greedy_generate(prompt: &str, n_tokens: usize) -> Option<Vec<i32>> {
         generated.push(token);
         seq.push(token);
     }
-    Some(generated)
+    generated
 }
 
 #[test]
 fn snapshot_generate_10_tokens() {
-    let Some(tokens) = greedy_generate("Once upon a time", 10) else { return };
+    let tokens = greedy_generate("Once upon a time", 10);
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_generate_numbers() {
-    let Some(tokens) = greedy_generate("1, 2, 3,", 8) else { return };
+    let tokens = greedy_generate("1, 2, 3,", 8);
     insta::assert_yaml_snapshot!(tokens);
 }

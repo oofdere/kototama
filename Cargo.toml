@@ -14,10 +14,6 @@ license = "MIT"
 clap = { version = "4.6", features = ["derive"] }
 llama-sys = { path = "llama-sys", features = ["native"] }
 
-[features]
-# When set, tests that require a model hard-fail if the model file is missing.
-# Without this feature they soft-skip with a printed message.
-require-model = []
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }

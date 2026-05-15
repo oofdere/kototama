@@ -2,13 +2,13 @@ mod common;
 
 use rusty_llama::Context;
 
-fn setup() -> Option<(rusty_llama::Model, rusty_llama::ContextParams)> {
-    common::try_load_model_and_context()
+fn setup() -> (rusty_llama::Model, rusty_llama::ContextParams) {
+    common::load_model_and_context()
 }
 
 #[test]
 fn push_increases_len() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     assert_eq!(seq.len(), 0);
@@ -19,7 +19,7 @@ fn push_increases_len() {
 
 #[test]
 fn extend_fills_tokens() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello world", false, false);
@@ -30,7 +30,7 @@ fn extend_fills_tokens() {
 
 #[test]
 fn tokens_accessor_matches_push_order() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("abc", false, false);
@@ -40,7 +40,7 @@ fn tokens_accessor_matches_push_order() {
 
 #[test]
 fn index_operator() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
@@ -50,7 +50,7 @@ fn index_operator() {
 
 #[test]
 fn get_returns_token() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
@@ -61,7 +61,7 @@ fn get_returns_token() {
 
 #[test]
 fn pop_decreases_len() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello", false, false);
@@ -74,7 +74,7 @@ fn pop_decreases_len() {
 
 #[test]
 fn pop_empty_returns_none() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     assert_eq!(seq.pop(), None);
@@ -82,7 +82,7 @@ fn pop_empty_returns_none() {
 
 #[test]
 fn logits_len_equals_vocab_size_after_push() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
@@ -92,7 +92,7 @@ fn logits_len_equals_vocab_size_after_push() {
 
 #[test]
 fn remove_range() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello world", false, false);
@@ -105,7 +105,7 @@ fn remove_range() {
 
 #[test]
 fn pos_min_max_after_push() {
-    let Some((model, params)) = setup() else { return };
+    let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     // Before any push, should return -1 (empty)
@@ -119,7 +119,7 @@ fn pos_min_max_after_push() {
 
 #[test]
 fn copy_to() {
-    let Some((model, _)) = setup() else { return };
+    let (model, _) = setup();
     // KV copies across sequences require kv_unified = true
     let mut params = common::test_ctx_params();
     params.kv_unified = true;
