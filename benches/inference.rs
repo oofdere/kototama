@@ -1,20 +1,10 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rusty_llama::{Context, ContextParams, Model, ModelParams};
+use rusty_llama::{Context, ContextParams};
 
-fn bench_model_path() -> String {
-    std::env::var("RUSTY_LLAMA_BENCH_MODEL")
-        .or_else(|_| std::env::var("RUSTY_LLAMA_TEST_MODEL"))
-        .unwrap_or_else(|_| "./test-models/TinyStories-656K.Q2_K.gguf".to_string())
-}
-
-fn load_model() -> Model {
-    let path = bench_model_path();
-    let mut params = ModelParams::new();
-    params.n_gpu_layers = 0;
-    Model::load_from_file(&path, params)
-        .unwrap_or_else(|_| panic!("Failed to load model from '{}'. Set RUSTY_LLAMA_BENCH_MODEL.", path))
+fn load_model() -> &'static rusty_llama::Model {
+    rusty_llama::test_common::load_model()
 }
 
 fn make_ctx_params() -> ContextParams {
