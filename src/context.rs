@@ -153,9 +153,20 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub fn get_logits_ith(&self, idx: i32, n_vocab: usize) -> &[f32] {
+    /// Get the logits for the `idx`-th output of the last evaluation.
+    ///
+    /// Returns `None` if no logits are available for that index — this happens
+    /// when `idx` is out of range or logits were not requested for that
+    /// position in the batch. The underlying llama.cpp API signals these cases
+    /// by returning a null pointer, so checking for null here is required to
+    /// avoid undefined behavior from constructing a slice over a null pointer.
+    pub fn get_logits_ith(&self, idx: i32, n_vocab: usize) -> Option<&[f32]> {
         let ptr = unsafe { llama_get_logits_ith(self.ctx, idx) };
-        unsafe { std::slice::from_raw_parts(ptr, n_vocab) }
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { std::slice::from_raw_parts(ptr, n_vocab) })
+        }
     }
 
     /// Sample and accept a token from the idx-th output of the last evaluation
