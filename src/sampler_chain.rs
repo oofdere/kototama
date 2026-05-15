@@ -54,6 +54,7 @@ impl SamplerChain {
 
     pub fn into_raw(self) -> *mut llama_sys::llama_sampler {
         let ptr = self.0;
+        std::mem::forget(self);
         ptr
     }
 }
@@ -69,5 +70,26 @@ impl Drop for SamplerChain {
         unsafe {
             llama_sys::llama_sampler_free(self.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Backend;
+
+    #[test]
+    fn into_raw_does_not_free() {
+        let _backend = Backend::acquire();
+        let params = SamplerChainParams::new();
+        let chain = SamplerChain::new(&params);
+
+        let raw = chain.into_raw();
+
+        // The pointer must still be valid after into_raw; the caller
+        // now owns it. Without the mem::forget fix this would be a
+        // use-after-free.
+        assert!(!raw.is_null());
+        unsafe { llama_sys::llama_sampler_free(raw) };
     }
 }
