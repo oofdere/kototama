@@ -40,8 +40,7 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         self.logits = self
             .ctx
             .get_logits_ith(0)
-            .expect("logits should be available for a freshly decoded token")
-            .to_vec();
+            .expect("logits should be available for a freshly decoded token");
         self.tokens.push(token);
     }
 

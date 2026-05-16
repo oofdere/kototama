@@ -161,12 +161,18 @@ impl<'a> Context<'a> {
     /// by returning a null pointer, so checking for null here is required to
     /// avoid undefined behavior from constructing a slice over a null pointer.
     ///
-    /// The slice length is derived from the model's vocabulary size, which is
-    /// the layout llama.cpp uses for the logits buffer. Taking the length from
-    /// the model rather than the caller keeps this a sound safe API: a caller
-    /// supplied length larger than the real buffer would let safe code read
-    /// out of bounds.
-    pub fn get_logits_ith(&self, idx: i32) -> Option<&[f32]> {
+    /// The logits are copied into an owned `Vec` rather than handed back as a
+    /// borrowed slice. The buffer behind `llama_get_logits_ith` is owned by the
+    /// `llama_context` and is overwritten in place by `encode`/`decode`. Those
+    /// methods only take `&self` (so several `Sequence`s can share one
+    /// `Context`), which means a borrowed `&[f32]` tied to `&self` could be
+    /// mutated through the FFI while still live — a data race / aliasing
+    /// violation, i.e. undefined behavior reachable from safe code. Returning
+    /// an owned copy severs that alias and keeps this a sound safe API.
+    ///
+    /// The length is derived from the model's vocabulary size, which is the
+    /// layout llama.cpp uses for the logits buffer.
+    pub fn get_logits_ith(&self, idx: i32) -> Option<Vec<f32>> {
         let ptr = unsafe { llama_get_logits_ith(self.ctx, idx) };
         if ptr.is_null() {
             return None;
@@ -175,7 +181,7 @@ impl<'a> Context<'a> {
         if n_vocab <= 0 {
             return None;
         }
-        Some(unsafe { std::slice::from_raw_parts(ptr, n_vocab as usize) })
+        Some(unsafe { std::slice::from_raw_parts(ptr, n_vocab as usize) }.to_vec())
     }
 
     /// Sample and accept a token from the idx-th output of the last evaluation
