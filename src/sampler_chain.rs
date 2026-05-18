@@ -52,8 +52,11 @@ impl SamplerChain {
         unsafe { llama_sys::llama_perf_sampler(self.0) }
     }
 
+    /// Consumes the chain and returns the raw `llama_sampler` pointer, transferring
+    /// ownership to the caller, who becomes responsible for freeing it.
     pub fn into_raw(self) -> *mut llama_sys::llama_sampler {
         let ptr = self.0;
+        std::mem::forget(self); // suppress Drop so the sampler is not freed out from under the caller
         ptr
     }
 }
