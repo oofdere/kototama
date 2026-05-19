@@ -54,6 +54,7 @@ impl SamplerChain {
 
     pub fn into_raw(self) -> *mut llama_sys::llama_sampler {
         let ptr = self.0;
+        std::mem::forget(self); // ownership transfers to the caller; skip Drop so the sampler isn't freed
         ptr
     }
 }
