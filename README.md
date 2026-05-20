@@ -1,6 +1,6 @@
 # Rusty Llama.cpp Binding
 
-upstream version: b9158
+upstream version: b9246
 
 api stability: no. not yet.
 
