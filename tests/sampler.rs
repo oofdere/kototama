@@ -1,3 +1,5 @@
+mod common;
+
 use rusty_llama::{Sampler, SamplerChain, SamplerChainParams};
 
 // ---------- Sampler constructors ----------
@@ -103,4 +105,60 @@ fn sampler_chain_params_deref() {
     let params = SamplerChainParams::new();
     // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
     let _no_perf = params.no_perf;
+}
+
+#[test]
+fn sampler_chain_params_deref_mut() {
+    let mut params = SamplerChainParams::new();
+    (*params).no_perf = true;
+    assert!(params.no_perf);
+}
+
+#[test]
+fn sampler_chain_params_as_ptr_not_null() {
+    let params = SamplerChainParams::new();
+    assert!(!params.as_ptr().is_null());
+}
+
+#[test]
+fn sampler_chain_params_as_mut_ptr_not_null() {
+    let mut params = SamplerChainParams::new();
+    assert!(!params.as_mut_ptr().is_null());
+}
+
+// ---------- Sampler constructors that need a vocab pointer ----------
+
+#[test]
+fn mirostat_init() {
+    let model = common::load_model();
+    let _s = Sampler::mirostat(model.n_tokens(), 42, 5.0, 0.1, 100);
+}
+
+#[test]
+fn logit_bias_empty_init() {
+    let model = common::load_model();
+    // With n_logit_bias = 0 the pointer is unused, so a null pointer is fine.
+    let _s = Sampler::logit_bias(model.n_tokens(), 0, std::ptr::null());
+}
+
+#[test]
+fn infill_init() {
+    let model = common::load_model();
+    let _s = Sampler::infill(model.vocab);
+}
+
+#[test]
+fn dry_init_no_breakers() {
+    let model = common::load_model();
+    // num_breakers = 0 means seq_breakers is unused; a null pointer is acceptable.
+    let _s = Sampler::dry(
+        model.vocab,
+        /* n_ctx_train */ 2048,
+        /* dry_multiplier */ 0.0,
+        /* dry_base */ 1.75,
+        /* dry_allowed_length */ 2,
+        /* dry_penalty_last_n */ 64,
+        std::ptr::null_mut(),
+        0,
+    );
 }

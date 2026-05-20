@@ -161,6 +161,13 @@ impl<'a> Context<'a> {
     /// by returning a null pointer, so checking for null here is required to
     /// avoid undefined behavior from constructing a slice over a null pointer.
     ///
+    /// **Debug builds of llama.cpp:** when `NDEBUG` is not defined (the
+    /// default for `cargo build`/`cargo test`), llama.cpp aborts the process
+    /// via `GGML_ABORT` on an invalid `idx` instead of returning a null
+    /// pointer. The `None` branch is only observable in release builds. The
+    /// null check here is still load-bearing — it protects callers in release
+    /// mode from a soundness hole.
+    ///
     /// The logits are copied into an owned `Vec` rather than handed back as a
     /// borrowed slice. The buffer behind `llama_get_logits_ith` is owned by the
     /// `llama_context` and is overwritten in place by `encode`/`decode`. Those

@@ -79,3 +79,46 @@ fn perf_does_not_crash() {
     let ctx = Context::new(&model, &params).unwrap();
     let _ = ctx.perf();
 }
+
+#[test]
+fn as_ptr_not_null() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    assert!(!ctx.as_ptr().is_null());
+}
+
+#[test]
+fn as_mut_ptr_not_null() {
+    let (model, params) = common::load_model_and_context();
+    let mut ctx = Context::new(&model, &params).unwrap();
+    assert!(!ctx.as_mut_ptr().is_null());
+}
+
+#[test]
+fn params_round_trip() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    // ctx.params() should expose the same n_ctx we passed in.
+    assert_eq!(ctx.params().n_ctx, params.n_ctx);
+}
+
+#[test]
+fn context_params_as_ptr_not_null() {
+    let params = common::test_ctx_params();
+    assert!(!params.as_ptr().is_null());
+}
+
+#[test]
+fn context_params_as_mut_ptr_not_null() {
+    let mut params = common::test_ctx_params();
+    assert!(!params.as_mut_ptr().is_null());
+}
+
+#[test]
+fn context_params_deref_mut() {
+    // Exercises the DerefMut impl for ContextParams (write through *params).
+    let mut params = common::test_ctx_params();
+    (*params).n_ctx = 256;
+    assert_eq!(params.n_ctx, 256);
+}
+

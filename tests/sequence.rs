@@ -213,3 +213,20 @@ fn copy_from() {
     dst.copy_from(&src, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
 }
+
+#[test]
+fn kv_shift_advances_positions() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    if !ctx.can_shift() {
+        return;
+    }
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+    let pos_max_before = seq.pos_max();
+    let n = seq.len() as i32;
+    // Shift all positions by +1; pos_max should grow by exactly 1.
+    seq.kv_shift(0..n, 1);
+    assert_eq!(seq.pos_max(), pos_max_before + 1);
+}

@@ -30,3 +30,16 @@ fn deref_mut_allows_mutation() {
     (*batch).n_tokens = 3;
     assert_eq!(batch.n_tokens, 3);
 }
+
+#[test]
+fn as_raw_returns_inner() {
+    let batch = Batch::init_token(8, 1);
+    assert_eq!(batch.as_raw().n_tokens, 0);
+}
+
+#[test]
+fn as_raw_mut_allows_mutation() {
+    let mut batch = Batch::init_token(8, 1);
+    batch.as_raw_mut().n_tokens = 5;
+    assert_eq!(batch.n_tokens, 5);
+}

@@ -93,3 +93,61 @@ fn chat_template_default() {
     // TinyStories may or may not have a chat template; just verify it doesn't crash
     let _ = model.chat_template(None);
 }
+
+#[test]
+fn chat_template_unknown_name_returns_none() {
+    let model = common::load_model();
+    // Requesting a template by a name that does not exist should yield None
+    // (llama.cpp returns a null pointer, which the wrapper maps to None).
+    assert!(model
+        .chat_template(Some("definitely-not-a-real-template-name"))
+        .is_none());
+}
+
+#[test]
+fn not_hybrid() {
+    let model = common::load_model();
+    // TinyStories is a plain decoder-only transformer, not hybrid.
+    assert!(!model.is_hybrid());
+}
+
+#[test]
+fn as_ptr_and_mut_ptr_match() {
+    let mut model_owned = {
+        let mut params = rusty_llama::ModelParams::new();
+        params.n_gpu_layers = 0;
+        rusty_llama::Model::load_from_file(&common::model_path(), params)
+            .expect("failed to load model")
+    };
+    // Both accessors should yield the same underlying pointer.
+    let a = model_owned.as_ptr() as usize;
+    let b = model_owned.as_mut_ptr() as usize;
+    assert_eq!(a, b);
+    assert_ne!(a, 0);
+}
+
+#[test]
+fn model_params_deref_exposes_inner() {
+    let params = rusty_llama::ModelParams::new();
+    // Deref exposes the inner llama_model_params; just check a field is accessible.
+    let _ = params.n_gpu_layers;
+}
+
+#[test]
+fn model_params_deref_mut_allows_mutation() {
+    let mut params = rusty_llama::ModelParams::new();
+    (*params).n_gpu_layers = 0;
+    assert_eq!(params.n_gpu_layers, 0);
+}
+
+#[test]
+fn model_params_as_ptr_not_null() {
+    let params = rusty_llama::ModelParams::new();
+    assert!(!params.as_ptr().is_null());
+}
+
+#[test]
+fn model_params_as_mut_ptr_not_null() {
+    let mut params = rusty_llama::ModelParams::new();
+    assert!(!params.as_mut_ptr().is_null());
+}
