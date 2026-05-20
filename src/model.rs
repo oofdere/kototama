@@ -93,14 +93,32 @@ impl Model {
 
     /// get the model description
     pub fn desc(&self) -> String {
-        // get length of name
-        let len = unsafe { llama_model_desc(self.model, null_mut(), 0) };
-
-        let mut buf = vec![c_char::default(); len as usize];
-        unsafe { llama_model_desc(self.model, buf.as_mut_ptr(), len.try_into().unwrap()) };
-        // throw it in a string
-        let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
-        cstr.to_string_lossy().to_string()
+        // `llama_model_desc` is `snprintf` under the hood: the probe call with a
+        // null buffer returns the byte count of the description *excluding* the
+        // trailing NUL, and a real call writes at most `buf_size - 1` bytes plus
+        // the NUL. The buffer therefore has to be `needed + 1` bytes; passing
+        // `needed` as `buf_size` (as the previous implementation did) silently
+        // truncated the last character.
+        //
+        // The previous version also reached UB on the `needed == 0` edge case:
+        // an empty `Vec` yields a dangling-but-non-null pointer, and feeding
+        // that to `CStr::from_ptr` scans arbitrary memory for a NUL byte. Read
+        // the bytes through a regular slice instead so a zero-length buffer
+        // stays inert.
+        let needed = unsafe { llama_model_desc(self.model, null_mut(), 0) };
+        if needed <= 0 {
+            return String::new();
+        }
+        let buf_size = (needed as usize) + 1;
+        let mut buf = vec![0u8; buf_size];
+        let written = unsafe {
+            llama_model_desc(self.model, buf.as_mut_ptr() as *mut c_char, buf_size)
+        };
+        if written <= 0 {
+            return String::new();
+        }
+        let written = (written as usize).min(buf_size - 1);
+        String::from_utf8_lossy(&buf[..written]).into_owned()
     }
 
     /// Returns true if the model contains a decoder that requires llama_decode() call

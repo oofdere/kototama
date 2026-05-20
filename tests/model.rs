@@ -14,6 +14,35 @@ fn desc_nonempty() {
 }
 
 #[test]
+fn desc_matches_probe_length() {
+    // `llama_model_desc` uses snprintf: the probe with (NULL, 0) returns the
+    // number of bytes required excluding the trailing NUL. The wrapper must
+    // therefore return a string whose length equals that probed value.
+    // Previously the wrapper passed `needed` as buf_size and snprintf chopped
+    // the last byte off, so the returned description was one character short.
+    let model = common::load_model();
+    let needed = unsafe {
+        llama_sys::llama_model_desc(model.as_ptr(), std::ptr::null_mut(), 0)
+    };
+    let desc = model.desc();
+    assert_eq!(
+        desc.len(),
+        needed as usize,
+        "desc() should return all {} bytes, got {:?} ({} bytes)",
+        needed,
+        desc,
+        desc.len()
+    );
+    // Spot-check: TinyStories-656K's description ends with "Medium", not the
+    // truncated "Mediu" we used to return.
+    assert!(
+        desc.ends_with("Medium"),
+        "expected description to end with \"Medium\", got {:?}",
+        desc
+    );
+}
+
+#[test]
 fn n_tokens_positive() {
     let model = common::load_model();
     assert!(model.n_tokens() > 0, "vocab should have tokens");
