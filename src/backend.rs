@@ -3,7 +3,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static BACKEND_HANDLES: AtomicUsize = AtomicUsize::new(0);
 
-pub struct Backend();
+// The private `()` field seals the tuple constructor: a `Backend` can only be
+// obtained through `acquire()`. A `Backend` is a guard whose `Drop` decrements
+// `BACKEND_HANDLES`, so every live value must correspond to an `acquire()` that
+// incremented the count. Were the constructor public (as it is for a
+// zero-field tuple struct), safe code could mint a `Backend` that never bumped
+// the counter; dropping it would then free the backend out from under a live
+// `Model`, or underflow the counter so the next `acquire()` skips init.
+pub struct Backend(());
 
 impl Backend {
     pub fn acquire() -> Backend {
@@ -15,7 +22,7 @@ impl Backend {
                 llama_backend_init();
             }
         }
-        Backend()
+        Backend(())
     }
 }
 
