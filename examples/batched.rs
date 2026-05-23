@@ -63,7 +63,7 @@ fn main() {
 
     // initialize the model
     let model = Model::load_from_file(&args.model, ModelParams::new()).unwrap();
-    let _vocab = model.vocab;
+    let _vocab = model.vocab();
 
     // tokenize the prompt
     let tokens_list = model.tokenize(&prompt, true, true);

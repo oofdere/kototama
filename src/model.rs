@@ -45,7 +45,12 @@ impl Into<llama_sys::llama_model_params> for ModelParams {
 
 pub struct Model {
     model: *mut llama_model,
-    pub vocab: *const llama_vocab,
+    // Private: a public raw-pointer field is writable from safe code, so any
+    // safe caller could overwrite this with a null/dangling pointer and then
+    // trigger UB in any method that hands `self.vocab` to the FFI. Keeping it
+    // private + exposing a read-only accessor preserves the invariant that the
+    // pointer is whatever `llama_model_get_vocab` returned for `self.model`.
+    pub(crate) vocab: *const llama_vocab,
     _backend: Backend,
 }
 
@@ -75,6 +80,12 @@ impl Model {
 
     pub fn as_mut_ptr(&mut self) -> *mut llama_model {
         self.model
+    }
+
+    /// Raw pointer to the model's vocabulary, owned by the underlying
+    /// `llama_model`. Valid for the lifetime of this `Model`.
+    pub fn vocab(&self) -> *const llama_vocab {
+        self.vocab
     }
 
     /// gets the chat template of the specified name, or the default if None

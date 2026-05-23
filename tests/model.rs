@@ -3,7 +3,7 @@ mod common;
 #[test]
 fn load_model() {
     let model = common::load_model();
-    assert!(!model.vocab.is_null());
+    assert!(!model.vocab().is_null());
 }
 
 #[test]

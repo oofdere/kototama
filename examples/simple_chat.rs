@@ -31,7 +31,7 @@ fn main() {
     let model = Model::load_from_file(&model_path, model_params).expect("Failed to load model");
 
     // vocab is stored in the model
-    let _vocab = model.vocab;
+    let _vocab = model.vocab();
 
     // initialize the context
     let mut ctx_params = ContextParams::new();
