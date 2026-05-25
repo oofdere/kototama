@@ -23,10 +23,3 @@ fn deref_exposes_inner_n_tokens() {
     let batch = Batch::init_token(16, 1);
     assert_eq!((*batch).n_tokens, 0);
 }
-
-#[test]
-fn deref_mut_allows_mutation() {
-    let mut batch = Batch::init_token(16, 1);
-    (*batch).n_tokens = 3;
-    assert_eq!(batch.n_tokens, 3);
-}

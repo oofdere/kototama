@@ -143,7 +143,7 @@ fn main() {
 
     for (i, token) in tokens_list.iter().enumerate() {
         common::batch_add(
-            batch.as_raw_mut(),
+            &mut batch,
             *token,
             i as i32,
             &seq_ids.clone(),
