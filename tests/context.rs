@@ -70,3 +70,92 @@ fn perf_does_not_crash() {
     let ctx = Context::new(&model, &params).unwrap();
     let _ = ctx.perf();
 }
+
+// ---------- Context::clone() shares actor state ----------
+
+#[test]
+fn context_clone_shares_free_slots() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let ctx_clone = ctx.clone();
+    // Both handles should see the same free-slot count
+    assert_eq!(ctx.free_slots(), ctx_clone.free_slots());
+}
+
+#[test]
+fn context_clone_slot_checkout_visible_on_original() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let ctx_clone = ctx.clone();
+    let total = ctx.free_slots();
+
+    // Check out a sequence via the clone
+    let _seq = ctx_clone.sequence().unwrap();
+
+    // The original handle should observe the reduced count (shared actor)
+    assert_eq!(ctx.free_slots(), total - 1);
+}
+
+#[test]
+fn context_clone_slot_checkout_visible_on_clone() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let ctx_clone = ctx.clone();
+    let total = ctx.free_slots();
+
+    // Check out a sequence via the original
+    let _seq = ctx.sequence().unwrap();
+
+    // The clone handle should observe the reduced count
+    assert_eq!(ctx_clone.free_slots(), total - 1);
+}
+
+#[test]
+fn context_clone_sequence_drop_restores_on_both() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let ctx_clone = ctx.clone();
+    let total = ctx.free_slots();
+
+    {
+        let _seq = ctx.sequence().unwrap();
+        assert_eq!(ctx_clone.free_slots(), total - 1);
+    }
+    // After drop, both handles see the restored count
+    assert_eq!(ctx.free_slots(), total);
+    assert_eq!(ctx_clone.free_slots(), total);
+}
+
+#[test]
+fn context_clone_n_ctx_matches() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let ctx_clone = ctx.clone();
+    assert_eq!(ctx.n_ctx(), ctx_clone.n_ctx());
+}
+
+// ---------- Context from cloned Model ----------
+
+#[test]
+fn context_from_cloned_model() {
+    let (model, params) = common::load_model_and_context();
+    let model_clone = model.clone();
+    // Context should be successfully created from a cloned model handle
+    let ctx = Context::new(&model_clone, &params).expect("context from cloned model should succeed");
+    assert!(ctx.free_slots() > 0);
+    assert!(ctx.n_ctx() >= params.n_ctx);
+}
+
+#[test]
+fn context_from_cloned_model_is_independent() {
+    let (model, params) = common::load_model_and_context();
+    let model_clone = model.clone();
+
+    let ctx1 = Context::new(&model, &params).unwrap();
+    let ctx2 = Context::new(&model_clone, &params).unwrap();
+
+    // Independent contexts: checking out from one doesn't affect the other
+    let _seq1 = ctx1.sequence().unwrap();
+    assert_eq!(ctx2.free_slots(), params.n_seq_max as usize,
+        "second context should have full slots independent of first");
+}
