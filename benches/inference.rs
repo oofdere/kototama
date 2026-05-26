@@ -1,9 +1,9 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rusty_llama::{Context, ContextParams, Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{Context, ContextParams};
 
-fn load_model() -> &'static rusty_llama::Model {
+fn load_model() -> rusty_llama::Model {
     rusty_llama::test_common::load_model()
 }
 
@@ -39,18 +39,13 @@ fn bench_decode_single_token(c: &mut Criterion) {
     c.bench_function("decode_single_token", |b| {
         b.iter_batched(
             || {
-                // Leak ctx so that Sequence (which borrows it) can be returned
-                // from this closure. The Box is recovered and dropped in the
-                // measurement closure via `Box::from_raw`.
-                let ctx = Box::new(Context::new(&model, &ctx_params).unwrap());
-                let ctx_ref: &'static Context<'static> =
-                    unsafe { &*(Box::into_raw(ctx) as *const _) };
-                let mut seq = ctx_ref.sequence().unwrap();
+                let ctx = Context::new(&model, &ctx_params).unwrap();
+                let mut seq = ctx.sequence().unwrap();
                 let seed_token = model.bos_token().unwrap_or(1);
                 seq.push(seed_token);
-                (ctx_ref as *const Context, seq)
+                (ctx, seq)
             },
-            |(ctx_ptr, mut seq)| {
+            |(_ctx, mut seq)| {
                 let token = seq
                     .logits()
                     .iter()
@@ -59,9 +54,6 @@ fn bench_decode_single_token(c: &mut Criterion) {
                     .map(|(i, _)| i as i32)
                     .unwrap();
                 seq.push(black_box(token));
-                // Drop seq first (releases the borrow on ctx), then ctx
-                drop(seq);
-                unsafe { drop(Box::from_raw(ctx_ptr as *mut Context)) };
             },
             criterion::BatchSize::SmallInput,
         )
@@ -77,14 +69,12 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
     c.bench_function("generate_10_tokens", |b| {
         b.iter_batched(
             || {
-                let ctx = Box::new(Context::new(&model, &ctx_params).unwrap());
-                let ctx_ref: &'static Context<'static> =
-                    unsafe { &*(Box::into_raw(ctx) as *const _) };
-                let mut seq = ctx_ref.sequence().unwrap();
+                let ctx = Context::new(&model, &ctx_params).unwrap();
+                let mut seq = ctx.sequence().unwrap();
                 seq.extend(&prompt_tokens);
-                (ctx_ref as *const Context, seq)
+                (ctx, seq)
             },
-            |(ctx_ptr, mut seq)| {
+            |(_ctx, mut seq)| {
                 for _ in 0..10 {
                     let token = seq
                         .logits()
@@ -98,8 +88,6 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
                     }
                     seq.push(black_box(token));
                 }
-                drop(seq);
-                unsafe { drop(Box::from_raw(ctx_ptr as *mut Context)) };
             },
             criterion::BatchSize::SmallInput,
         )
@@ -123,21 +111,25 @@ fn bench_sequence_extend(c: &mut Criterion) {
     c.bench_function("sequence_extend_100_tokens", |b| {
         b.iter_batched(
             || {
-                let ctx = Box::new(Context::new(&model, &ctx_params).unwrap());
-                let ctx_ref: &'static Context<'static> =
-                    unsafe { &*(Box::into_raw(ctx) as *const _) };
-                let seq = ctx_ref.sequence().unwrap();
-                (ctx_ref as *const Context, seq)
+                let ctx = Context::new(&model, &ctx_params).unwrap();
+                let seq = ctx.sequence().unwrap();
+                (ctx, seq)
             },
-            |(ctx_ptr, mut seq)| {
+            |(_ctx, mut seq)| {
                 seq.extend(black_box(&tokens));
-                drop(seq);
-                unsafe { drop(Box::from_raw(ctx_ptr as *mut Context)) };
             },
             criterion::BatchSize::SmallInput,
         )
     });
 }
 
-criterion_group!(benches, bench_tokenize, bench_token_to_piece, bench_decode_single_token, bench_generate_10_tokens, bench_context_creation, bench_sequence_extend);
+criterion_group!(
+    benches,
+    bench_tokenize,
+    bench_token_to_piece,
+    bench_decode_single_token,
+    bench_generate_10_tokens,
+    bench_context_creation,
+    bench_sequence_extend,
+);
 criterion_main!(benches);

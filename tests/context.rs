@@ -12,16 +12,7 @@ fn context_new_ok() {
 fn n_ctx_at_least_params() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
-    // llama.cpp may round n_ctx up to a multiple of a hardware-dependent value
     assert!(ctx.n_ctx() >= params.n_ctx, "n_ctx should be at least the requested size");
-}
-
-#[test]
-fn model_ref_round_trips() {
-    let (model, params) = common::load_model_and_context();
-    let ctx = Context::new(&model, &params).unwrap();
-    // ctx.model() should return a reference to the same model
-    assert_eq!(ctx.model().n_tokens(), model.n_tokens());
 }
 
 #[test]

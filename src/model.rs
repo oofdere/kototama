@@ -4,9 +4,9 @@ use std::{
     ffi::c_char,
     ops::{Deref, DerefMut},
     ptr::{null, null_mut},
+    sync::Arc,
 };
 
-// eventually builder pattern
 pub struct ModelParams(pub llama_sys::llama_model_params);
 
 impl ModelParams {
@@ -43,15 +43,35 @@ impl Into<llama_sys::llama_model_params> for ModelParams {
     }
 }
 
-pub struct Model {
+struct ModelInner {
     model: *mut llama_model,
-    pub vocab: *const llama_vocab,
+    pub(crate) vocab: *const llama_vocab,
     _backend: Backend,
+}
+
+// SAFETY: llama_model is immutable after creation. All methods on Model
+// (tokenize, token_to_piece, vocab queries, desc, etc.) are read-only
+// operations on the underlying C data. llama.cpp does not mutate the
+// model during these calls.
+unsafe impl Send for ModelInner {}
+unsafe impl Sync for ModelInner {}
+
+impl Drop for ModelInner {
+    fn drop(&mut self) {
+        unsafe { llama_model_free(self.model) };
+    }
+}
+
+/// Thread-safe handle to a loaded model.
+///
+/// Cloning is cheap (Arc bump). Use from any thread.
+#[derive(Clone)]
+pub struct Model {
+    inner: Arc<ModelInner>,
 }
 
 impl Model {
     pub fn load_from_file(path: &str, params: ModelParams) -> Result<Self, ()> {
-        // TODO: handle errors (null return, path not exist, etc.)
         let _backend = Backend::acquire();
         let path = std::ffi::CString::new(path).map_err(|_| ())?;
         let model = unsafe { llama_model_load_from_file(path.as_ptr(), params.into()) };
@@ -63,56 +83,47 @@ impl Model {
         let vocab = unsafe { llama_model_get_vocab(model) };
 
         Ok(Self {
-            model,
-            vocab,
-            _backend,
+            inner: Arc::new(ModelInner {
+                model,
+                vocab,
+                _backend,
+            }),
         })
     }
 
     pub fn as_ptr(&self) -> *const llama_model {
-        self.model
+        self.inner.model
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut llama_model {
-        self.model
+    pub(crate) fn as_mut_ptr(&self) -> *mut llama_model {
+        self.inner.model
     }
 
-    /// gets the chat template of the specified name, or the default if None
+    pub(crate) fn vocab_ptr(&self) -> *const llama_vocab {
+        self.inner.vocab
+    }
+
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
         let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
         let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
-        let str = unsafe { llama_model_chat_template(self.model, name_ptr) };
+        let str = unsafe { llama_model_chat_template(self.inner.model, name_ptr) };
         if str.is_null() {
             None
         } else {
-            // convert to string
             let cstr = unsafe { std::ffi::CStr::from_ptr(str) };
             Some(cstr.to_string_lossy().to_string())
         }
     }
 
-    /// get the model description
     pub fn desc(&self) -> String {
-        // `llama_model_desc` is `snprintf` under the hood: the probe call with a
-        // null buffer returns the byte count of the description *excluding* the
-        // trailing NUL, and a real call writes at most `buf_size - 1` bytes plus
-        // the NUL. The buffer therefore has to be `needed + 1` bytes; passing
-        // `needed` as `buf_size` (as the previous implementation did) silently
-        // truncated the last character.
-        //
-        // The previous version also reached UB on the `needed == 0` edge case:
-        // an empty `Vec` yields a dangling-but-non-null pointer, and feeding
-        // that to `CStr::from_ptr` scans arbitrary memory for a NUL byte. Read
-        // the bytes through a regular slice instead so a zero-length buffer
-        // stays inert.
-        let needed = unsafe { llama_model_desc(self.model, null_mut(), 0) };
+        let needed = unsafe { llama_model_desc(self.inner.model, null_mut(), 0) };
         if needed <= 0 {
             return String::new();
         }
         let buf_size = (needed as usize) + 1;
         let mut buf = vec![0u8; buf_size];
         let written = unsafe {
-            llama_model_desc(self.model, buf.as_mut_ptr() as *mut c_char, buf_size)
+            llama_model_desc(self.inner.model, buf.as_mut_ptr() as *mut c_char, buf_size)
         };
         if written <= 0 {
             return String::new();
@@ -121,16 +132,14 @@ impl Model {
         String::from_utf8_lossy(&buf[..written]).into_owned()
     }
 
-    /// Returns true if the model contains a decoder that requires llama_decode() call
     #[inline]
     pub fn has_decoder(&self) -> bool {
-        unsafe { llama_model_has_decoder(self.model) }
+        unsafe { llama_model_has_decoder(self.inner.model) }
     }
 
-    /// For encoder-decoder models, this function returns id of the token that must be provided to the decoder to start generating output sequence. For other models, it returns -1.
     #[inline]
     pub fn decoder_start_token(&self) -> Option<llama_token> {
-        let token = unsafe { llama_model_decoder_start_token(self.model) };
+        let token = unsafe { llama_model_decoder_start_token(self.inner.model) };
         if token == LLAMA_TOKEN_NULL {
             None
         } else {
@@ -138,36 +147,31 @@ impl Model {
         }
     }
 
-    /// Returns true if the model contains an encoder that requires llama_encode() call
     #[inline]
     pub fn has_encoder(&self) -> bool {
-        unsafe { llama_model_has_encoder(self.model) }
+        unsafe { llama_model_has_encoder(self.inner.model) }
     }
 
-    /// Returns true if the model is diffusion-based (like LLaDA, Dream, etc.)
     #[inline]
     pub fn is_diffusion(&self) -> bool {
-        unsafe { llama_model_is_diffusion(self.model) }
+        unsafe { llama_model_is_diffusion(self.inner.model) }
     }
 
-    /// Returns true if the model is hybrid (like Jamba, Granite, etc.)
     #[inline]
     pub fn is_hybrid(&self) -> bool {
-        unsafe { llama_model_is_hybrid(self.model) }
+        unsafe { llama_model_is_hybrid(self.inner.model) }
     }
 
-    /// Returns true if the model is recurrent (like Mamba, RWKV, etc.)
     #[inline]
     pub fn is_recurrent(&self) -> bool {
-        unsafe { llama_model_is_recurrent(self.model) }
+        unsafe { llama_model_is_recurrent(self.inner.model) }
     }
 
-    /// Convert a token to its text representation
     pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
-        let mut buf = [0u8; 64]; // look into setting this dynamically from the model's vocab
+        let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
-                self.vocab,
+                self.inner.vocab,
                 token,
                 buf.as_mut_ptr() as *mut i8,
                 buf.len() as i32,
@@ -181,19 +185,10 @@ impl Model {
         Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
     }
 
-    /// tokenize text
-    /// @details Convert the provided text into tokens.
-    ///
-    /// @param tokens The tokens pointer must be large enough to hold the resulting tokens.
-    /// @return Returns the number of tokens on success, no more than n_tokens_max
-    /// @return Returns a negative number on failure - the number of tokens that would have been returned
-    /// @return Returns INT32_MIN on overflow (e.g., tokenization result size exceeds int32_t limit)
-    /// @param add_special Allow to add BOS and EOS tokens if model is configured to do so.
-    /// @param parse_special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext. Does not insert a leading space.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
         let len = -unsafe {
             llama_sys::llama_tokenize(
-                self.vocab,
+                self.inner.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 std::ptr::null_mut(),
@@ -202,14 +197,14 @@ impl Model {
                 parse_special,
             )
         };
-        let mut tokens = vec![0i32; len as usize]; // look into using smallvec/stack array
+        let mut tokens = vec![0i32; len as usize];
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
-                self.vocab,
+                self.inner.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32, // is this needed it's a vec
+                tokens.len() as i32,
                 add_special,
                 parse_special,
             )
@@ -218,10 +213,3 @@ impl Model {
         tokens
     }
 }
-
-impl Drop for Model {
-    fn drop(&mut self) {
-        unsafe { llama_model_free(self.model) };
-    }
-}
-

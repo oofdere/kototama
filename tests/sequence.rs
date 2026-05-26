@@ -2,7 +2,7 @@ mod common;
 
 use rusty_llama::Context;
 
-fn setup() -> (&'static rusty_llama::Model, rusty_llama::ContextParams) {
+fn setup() -> (rusty_llama::Model, rusty_llama::ContextParams) {
     common::load_model_and_context()
 }
 
@@ -108,7 +108,6 @@ fn pos_min_max_after_push() {
     let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
-    // Before any push, should return -1 (empty)
     assert_eq!(seq.pos_min(), -1);
     assert_eq!(seq.pos_max(), -1);
     let tokens = model.tokenize("hello", false, false);
@@ -120,7 +119,6 @@ fn pos_min_max_after_push() {
 #[test]
 fn copy_to() {
     let (model, _) = setup();
-    // KV copies across sequences require kv_unified = true
     let mut params = common::test_ctx_params();
     params.kv_unified = true;
     let ctx = Context::new(&model, &params).unwrap();
@@ -128,7 +126,6 @@ fn copy_to() {
     let mut dst = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
     src.extend(&tokens);
-    // dst needs its own decoded state before we can overwrite it via KV copy
     dst.extend(&tokens);
     src.copy_to(&mut dst, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
@@ -159,7 +156,6 @@ fn multiple_sequences_generate_different_logits() {
     let tokens2 = model.tokenize("world", false, false);
     seq1.extend(&tokens1);
     seq2.extend(&tokens2);
-    // Verify that the final logits differ between sequences
     assert_ne!(seq1.logits(), seq2.logits());
 }
 

@@ -29,9 +29,6 @@ fn main() {
     let ngl = args.n_gpu_layers;
     let n_predict = args.n_predict;
 
-    // backends get loaded and freed automatically
-
-    // Initialize the model
     let mut model_params = ModelParams::new();
     model_params.n_gpu_layers = ngl;
 
@@ -42,35 +39,26 @@ fn main() {
         panic!("Model has encoder, which is not supported in this example");
     }
 
-    // Tokenize the prompt
     let prompt_tokens = model.tokenize(&prompt, true, true);
     let n_prompt = prompt_tokens.len();
 
-    // Initialize the context
     let mut ctx_params = ContextParams::new();
-    {
-        // n_ctx is the context size
-        ctx_params.n_ctx = (n_prompt + n_predict as usize - 1) as u32;
-        // n_batch is the maximum number of tokens that can be processed in a single call to llama_decode
-        // 1 is used here because the implementation currently only supports single-token decoding
-        ctx_params.n_batch = 1; // n_prompt as u32;
-        // enable performance counters
-        ctx_params.no_perf = false;
-    }
+    ctx_params.n_ctx = (n_prompt + n_predict as usize - 1) as u32;
+    ctx_params.n_batch = 1;
+    ctx_params.no_perf = false;
 
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
 
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
     seq.extend(&prompt_tokens);
 
-    // Print the prompt token-by-token
     for token in &prompt_tokens {
         let piece = model.token_to_piece(*token).unwrap();
         print!("{}", piece);
     }
     std::io::stdout().flush().ok();
 
-    // Main loop
+    // Main loop — greedy argmax from cached logits
     for _ in 0..n_predict {
         let (token, _) = seq
             .logits()
@@ -87,8 +75,4 @@ fn main() {
     }
 
     println!();
-
-    let t_main_end = unsafe { llama_sys::llama_time_us() };
-
-    drop(seq);
 }
