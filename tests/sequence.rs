@@ -87,7 +87,7 @@ fn logits_len_equals_vocab_size_after_push() {
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
     seq.push(tokens[0]);
-    assert_eq!(seq.logits().len(), model.n_tokens() as usize);
+    assert_eq!(seq.logits().unwrap().len(), model.n_tokens() as usize);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn multiple_sequences_generate_different_logits() {
     let tokens2 = model.tokenize("world", false, false);
     seq1.extend(&tokens1);
     seq2.extend(&tokens2);
-    assert_ne!(seq1.logits(), seq2.logits());
+    assert_ne!(seq1.logits().unwrap(), seq2.logits().unwrap());
 }
 
 #[test]
@@ -294,6 +294,7 @@ fn sequence_sample_matches_argmax() {
 
     let argmax = seq
         .logits()
+        .unwrap()
         .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.total_cmp(b))

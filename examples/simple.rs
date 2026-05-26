@@ -67,6 +67,7 @@ fn main() {
     for _ in 0..n_predict {
         let (token, _) = seq
             .logits()
+            .expect("no logits")
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.total_cmp(b))

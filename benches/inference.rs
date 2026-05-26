@@ -48,6 +48,7 @@ fn bench_decode_single_token(c: &mut Criterion) {
             |mut seq| {
                 let token = seq
                     .logits()
+                    .unwrap()
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.total_cmp(b))
@@ -82,6 +83,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
                 for _ in 0..10 {
                     let token = seq
                         .logits()
+                        .unwrap()
                         .iter()
                         .enumerate()
                         .max_by(|(_, a), (_, b)| a.total_cmp(b))

@@ -43,7 +43,7 @@ fn greedy_sample_matches_argmax() {
 
     let mut argmax = 0i32;
     let mut best = f32::NEG_INFINITY;
-    for (i, &v) in seq.logits().iter().enumerate() {
+    for (i, &v) in seq.logits().unwrap().iter().enumerate() {
         if v > best {
             best = v;
             argmax = i as i32;
@@ -91,7 +91,7 @@ fn two_sequences_independent() {
 
     assert_eq!(seq_a.tokens(), tokens_a.as_slice());
     assert_eq!(seq_b.tokens(), tokens_b.as_slice());
-    assert_ne!(seq_a.logits(), seq_b.logits(), "different prompts should produce different logits");
+    assert_ne!(seq_a.logits().unwrap(), seq_b.logits().unwrap(), "different prompts should produce different logits");
 }
 
 // ---------- Sequence logits state ----------
@@ -101,7 +101,7 @@ fn logits_empty_before_push() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
     let seq = ctx.sequence().unwrap();
-    assert!(seq.logits().is_empty(), "logits should be empty before any token is pushed");
+    assert!(seq.logits().is_none(), "logits should be None before any token is pushed");
 }
 
 // ---------- Generation determinism ----------
@@ -120,6 +120,7 @@ fn greedy_generation_is_deterministic() {
         for _ in 0..5 {
             let token = seq
                 .logits()
+                .unwrap()
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.total_cmp(b))

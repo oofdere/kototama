@@ -53,6 +53,7 @@ fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
     for _ in 0..n_tokens {
         let token = seq
             .logits()
+            .unwrap()
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.total_cmp(b))

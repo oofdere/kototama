@@ -12,7 +12,7 @@ pub struct Sequence {
     ctx: Context,
     id: llama_seq_id,
     tokens: Vec<llama_token>,
-    logits: Vec<f32>,
+    logits: Option<Vec<f32>>,
 }
 
 impl Sequence {
@@ -21,12 +21,12 @@ impl Sequence {
             ctx,
             id,
             tokens: Vec::new(),
-            logits: Vec::new(),
+            logits: None,
         }
     }
 
-    pub fn logits(&self) -> &[f32] {
-        &self.logits
+    pub fn logits(&self) -> Option<&[f32]> {
+        self.logits.as_deref()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -35,13 +35,29 @@ impl Sequence {
 
     pub fn push(&mut self, token: llama_token) {
         let pos = self.tokens.len() as i32;
-        self.logits = self
-            .ctx
-            .actor()
-            .push_token(token, pos, self.id)
-            .unwrap()
-            .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
+        self.logits = Some(
+            self.ctx
+                .actor()
+                .push_token(token, pos, self.id)
+                .unwrap()
+                .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
+        );
         self.tokens.push(token);
+    }
+
+    /// Re-decode the last token to refresh logits without pushing a new one.
+    /// Useful after `pop()`, `remove()`, or other mutations that invalidate logits.
+    pub fn decode(&mut self) {
+        if let Some(&last_token) = self.tokens.last() {
+            let pos = (self.tokens.len() - 1) as i32;
+            self.logits = Some(
+                self.ctx
+                    .actor()
+                    .push_token(last_token, pos, self.id)
+                    .unwrap()
+                    .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
+            );
+        }
     }
 
     pub fn pop(&mut self) -> Option<llama_token> {
@@ -51,7 +67,7 @@ impl Sequence {
         }
         if self.kv_remove((len - 1)..len) {
             let token = self.tokens.pop();
-            self.logits.clear();
+            self.logits = None;
             token
         } else {
             None
@@ -75,7 +91,7 @@ impl Sequence {
     pub fn remove(&mut self, range: Range<usize>) -> bool {
         if self.kv_remove(range.start as i32..range.end as i32) {
             self.tokens.drain(range);
-            self.logits.clear();
+            self.logits = None;
             true
         } else {
             false
@@ -88,7 +104,7 @@ impl Sequence {
         other
             .tokens
             .extend_from_slice(&self.tokens[range.start..range.end]);
-        other.logits.clear();
+        other.logits = None;
     }
 
     pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
@@ -113,7 +129,7 @@ impl Sequence {
             .memory_seq_rm(self.id, range.start, range.end)
             .unwrap();
         if ok {
-            self.logits.clear();
+            self.logits = None;
         }
         ok
     }
@@ -130,7 +146,7 @@ impl Sequence {
             .actor()
             .memory_seq_add(self.id, range.start, range.end, delta)
             .unwrap();
-        self.logits.clear();
+        self.logits = None;
     }
 
     pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> llama_token {
