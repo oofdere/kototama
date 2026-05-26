@@ -40,7 +40,7 @@ impl Sequence {
             .actor()
             .push_token(token, pos, self.id)
             .unwrap()
-            .expect("decode failed");
+            .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
         self.tokens.push(token);
     }
 

@@ -39,6 +39,11 @@ fn main() {
         panic!("Model has encoder, which is not supported in this example");
     }
 
+    if n_predict <= 0 {
+        eprintln!("n_predict must be positive, got {n_predict}");
+        std::process::exit(1);
+    }
+
     let prompt_tokens = model.tokenize(&prompt, true, true);
     let n_prompt = prompt_tokens.len();
 

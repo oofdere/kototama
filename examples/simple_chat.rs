@@ -73,7 +73,7 @@ fn main() {
         loop {
             let token = seq.sample(&smpl);
 
-            if model.is_eog(token) || response.contains('\n') {
+            if model.is_eog(token) {
                 break;
             }
 
@@ -84,6 +84,10 @@ fn main() {
             response.push_str(&piece);
 
             seq.push(token);
+
+            if piece.contains('\n') {
+                break;
+            }
         }
         println!();
         messages.push(Message::Assistant(response));

@@ -41,12 +41,14 @@ fn greedy_sample_matches_argmax() {
     let tokens = model.tokenize("Once upon a time", true, false);
     seq.extend(&tokens);
 
-    let argmax = seq.logits()
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(i, _)| i as i32)
-        .unwrap();
+    let mut argmax = 0i32;
+    let mut best = f32::NEG_INFINITY;
+    for (i, &v) in seq.logits().iter().enumerate() {
+        if v > best {
+            best = v;
+            argmax = i as i32;
+        }
+    }
 
     let chain = SamplerChain::new(&SamplerChainParams::new())
         .add(Sampler::greedy());
