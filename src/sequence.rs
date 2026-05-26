@@ -50,7 +50,9 @@ impl Sequence {
             return None;
         }
         if self.kv_remove((len - 1)..len) {
-            self.tokens.pop()
+            let token = self.tokens.pop();
+            self.logits.clear();
+            token
         } else {
             None
         }
@@ -73,6 +75,7 @@ impl Sequence {
     pub fn remove(&mut self, range: Range<usize>) -> bool {
         if self.kv_remove(range.start as i32..range.end as i32) {
             self.tokens.drain(range);
+            self.logits.clear();
             true
         } else {
             false
@@ -85,6 +88,7 @@ impl Sequence {
         other
             .tokens
             .extend_from_slice(&self.tokens[range.start..range.end]);
+        other.logits.clear();
     }
 
     pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
@@ -104,10 +108,14 @@ impl Sequence {
     }
 
     pub fn kv_remove(&mut self, range: Range<llama_pos>) -> bool {
-        self.ctx
+        let ok = self.ctx
             .actor()
             .memory_seq_rm(self.id, range.start, range.end)
-            .unwrap()
+            .unwrap();
+        if ok {
+            self.logits.clear();
+        }
+        ok
     }
 
     pub fn kv_copy(&self, other: &mut Self, range: Range<llama_pos>) {
@@ -121,7 +129,8 @@ impl Sequence {
         self.ctx
             .actor()
             .memory_seq_add(self.id, range.start, range.end, delta)
-            .unwrap()
+            .unwrap();
+        self.logits.clear();
     }
 
     pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> llama_token {
