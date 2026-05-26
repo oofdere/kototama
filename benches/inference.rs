@@ -35,17 +35,17 @@ fn bench_token_to_piece(c: &mut Criterion) {
 fn bench_decode_single_token(c: &mut Criterion) {
     let model = load_model();
     let ctx_params = make_ctx_params();
+    let ctx = Context::new(&model, &ctx_params).unwrap();
+    let seed_token = model.bos_token().unwrap_or(1);
 
     c.bench_function("decode_single_token", |b| {
         b.iter_batched(
             || {
-                let ctx = Context::new(&model, &ctx_params).unwrap();
                 let mut seq = ctx.sequence().unwrap();
-                let seed_token = model.bos_token().unwrap_or(1);
                 seq.push(seed_token);
-                (ctx, seq)
+                seq
             },
-            |(_ctx, mut seq)| {
+            |mut seq| {
                 let token = seq
                     .logits()
                     .iter()
@@ -54,6 +54,7 @@ fn bench_decode_single_token(c: &mut Criterion) {
                     .map(|(i, _)| i as i32)
                     .unwrap();
                 seq.push(black_box(token));
+                seq
             },
             criterion::BatchSize::PerIteration,
         )
@@ -63,18 +64,21 @@ fn bench_decode_single_token(c: &mut Criterion) {
 fn bench_generate_10_tokens(c: &mut Criterion) {
     let model = load_model();
     let ctx_params = make_ctx_params();
+    let ctx = Context::new(&model, &ctx_params).unwrap();
     let prompt_tokens = model.tokenize("Once upon a time", true, false);
-    assert!(!prompt_tokens.is_empty(), "tokenize must produce at least one token with add_bos=true");
+    assert!(
+        !prompt_tokens.is_empty(),
+        "tokenize must produce at least one token with add_bos=true"
+    );
 
     c.bench_function("generate_10_tokens", |b| {
         b.iter_batched(
             || {
-                let ctx = Context::new(&model, &ctx_params).unwrap();
                 let mut seq = ctx.sequence().unwrap();
                 seq.extend(&prompt_tokens);
-                (ctx, seq)
+                seq
             },
-            |(_ctx, mut seq)| {
+            |mut seq| {
                 for _ in 0..10 {
                     let token = seq
                         .logits()
@@ -88,6 +92,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
                     }
                     seq.push(black_box(token));
                 }
+                seq
             },
             criterion::BatchSize::PerIteration,
         )
@@ -99,24 +104,26 @@ fn bench_context_creation(c: &mut Criterion) {
     let ctx_params = make_ctx_params();
 
     c.bench_function("context_creation", |b| {
-        b.iter(|| Context::new(black_box(&model), black_box(&ctx_params)).unwrap())
+        b.iter_batched(
+            || {},
+            |_| Context::new(black_box(&model), black_box(&ctx_params)).unwrap(),
+            criterion::BatchSize::PerIteration,
+        )
     });
 }
 
 fn bench_sequence_extend(c: &mut Criterion) {
     let model = load_model();
     let ctx_params = make_ctx_params();
+    let ctx = Context::new(&model, &ctx_params).unwrap();
     let tokens: Vec<i32> = (0..100).map(|_| model.bos_token().unwrap_or(1)).collect();
 
     c.bench_function("sequence_extend_100_tokens", |b| {
         b.iter_batched(
-            || {
-                let ctx = Context::new(&model, &ctx_params).unwrap();
-                let seq = ctx.sequence().unwrap();
-                (ctx, seq)
-            },
-            |(_ctx, mut seq)| {
+            || ctx.sequence().unwrap(),
+            |mut seq| {
                 seq.extend(black_box(&tokens));
+                seq
             },
             criterion::BatchSize::PerIteration,
         )
