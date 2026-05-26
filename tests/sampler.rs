@@ -81,6 +81,26 @@ fn sampler_chain_new() {
     let _chain = SamplerChain::new(&params);
 }
 
+/// `into_raw` must relinquish ownership so the returned pointer remains valid.
+/// Before the fix, `Drop` ran on the consumed `SamplerChain`, freeing the
+/// pointer before it was returned — a use-after-free.
+#[test]
+fn sampler_chain_into_raw_does_not_free() {
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let ptr = chain.into_raw();
+    assert!(!ptr.is_null());
+    // The pointer must still be live here. Calling llama_sampler_name on a
+    // freed pointer would be undefined behavior (and is caught by sanitizers).
+    let name = unsafe { std::ffi::CStr::from_ptr(llama_sys::llama_sampler_name(ptr)) };
+    assert!(
+        !name.to_bytes().is_empty(),
+        "sampler name should be non-empty for a live chain"
+    );
+    // Clean up — caller owns the pointer after into_raw.
+    unsafe { llama_sys::llama_sampler_free(ptr) };
+}
+
 #[test]
 fn sampler_chain_add() {
     let chain = SamplerChain::new(&SamplerChainParams::new())
