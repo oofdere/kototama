@@ -55,7 +55,7 @@ fn bench_decode_single_token(c: &mut Criterion) {
                     .unwrap();
                 seq.push(black_box(token));
             },
-            criterion::BatchSize::SmallInput,
+            criterion::BatchSize::PerIteration,
         )
     });
 }
@@ -89,7 +89,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
                     seq.push(black_box(token));
                 }
             },
-            criterion::BatchSize::SmallInput,
+            criterion::BatchSize::PerIteration,
         )
     });
 }
@@ -118,7 +118,7 @@ fn bench_sequence_extend(c: &mut Criterion) {
             |(_ctx, mut seq)| {
                 seq.extend(black_box(&tokens));
             },
-            criterion::BatchSize::SmallInput,
+            criterion::BatchSize::PerIteration,
         )
     });
 }
