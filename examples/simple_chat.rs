@@ -1,4 +1,5 @@
-/// Port of the simple_chat example from llama.cpp, using the actor-based API.
+/// this is mostly a port of the simple_chat example from llama.cpp
+/// ignoring the chat template parts
 use clap::Parser;
 use rusty_llama::*;
 
@@ -17,27 +18,34 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    let context = args.context;
+    let n_gpu_layers = args.n_gpu_layers;
+    let model_path = args.model;
 
+    // backends get loaded and freed automatically
+
+    // initialize the model
     let mut model_params = ModelParams::new();
-    model_params.n_gpu_layers = args.n_gpu_layers;
+    model_params.n_gpu_layers = n_gpu_layers;
 
-    let model = Model::load_from_file(&args.model, model_params).expect("Failed to load model");
+    let model = Model::load_from_file(&model_path, model_params).expect("Failed to load model");
 
+    // initialize the context
     let mut ctx_params = ContextParams::new();
-    ctx_params.n_ctx = args.context;
-    ctx_params.n_batch = args.context;
+    ctx_params.n_ctx = context;
+    ctx_params.n_batch = context;
 
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
 
+    // initialize the sampler
     let smpl = SamplerChain::new(&SamplerChainParams::new())
         .add(Sampler::min_p(0.05, 1))
         .add(Sampler::temp(0.8))
         .add(Sampler::dist(llama_sys::LLAMA_DEFAULT_SEED));
 
     let mut messages: Vec<Message> = Vec::new();
-
-    fn format_messages(messages: &[Message]) -> String {
+    fn format(messages: &Vec<Message>) -> String {
         let mut s = messages
             .iter()
             .map(|m| match m {
@@ -52,6 +60,7 @@ fn main() {
     }
 
     loop {
+        // get user input
         let mut input = String::new();
         std::io::stdin()
             .read_line(&mut input)
@@ -62,8 +71,11 @@ fn main() {
 
         messages.push(Message::User(input.trim().to_string()));
 
-        let prompt = format_messages(&messages);
+        // generate a response
+        let prompt = format(&messages);
         let is_first = seq.is_empty();
+
+        // tokenize the prompt
         let tokens = model.tokenize(&prompt, is_first, true);
 
         seq.extend(&tokens);
@@ -71,8 +83,10 @@ fn main() {
         let mut response = String::new();
         println!();
         loop {
+            // sample the next token
             let token = seq.sample(&smpl);
 
+            // is it an end of generation?
             if model.is_eog(token) {
                 break;
             }
