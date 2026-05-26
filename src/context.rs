@@ -2,10 +2,13 @@ use llama_sys::*;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use spawned_concurrency::message::Message;
+use spawned_concurrency::protocol;
 use spawned_concurrency::threads::{Actor, ActorRef, ActorStart, Context as ActorContext, Handler};
+use spawned_concurrency::Response;
 
 use crate::{common, Batch, Model};
+
+// -- Params --
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -39,6 +42,8 @@ impl DerefMut for ContextParams {
     }
 }
 
+// -- Error type --
+
 #[derive(Debug, Clone)]
 pub enum DecodeError {
     SlotNotFound,
@@ -47,104 +52,59 @@ pub enum DecodeError {
     FatalError,
 }
 
-// -- Messages sent to the ContextActor --
-// Each struct is a message; the actor handles them sequentially.
+// -- Send-safe wrapper for raw sampler pointer --
 
-#[derive(Debug)]
-pub(crate) struct CheckoutSeq;
-impl Message for CheckoutSeq {
-    type Result = Option<llama_seq_id>;
-}
+/// SAFETY: The pointer is only dereferenced inside the actor's handler
+/// while the caller is blocked on the synchronous request().
+pub(crate) struct SamplerPtr(pub *mut llama_sampler);
+unsafe impl Send for SamplerPtr {}
 
-#[derive(Debug)]
-pub(crate) struct ReleaseSeq {
-    pub seq_id: llama_seq_id,
-}
-impl Message for ReleaseSeq {
-    type Result = ();
-}
+// -- Protocol: defines what messages the actor handles --
+//
+// The #[protocol] macro generates:
+//   - A message struct per method (e.g. checkout_seq -> CheckoutSeq)
+//   - impl Message for each struct
+//   - A blanket impl of ContextProtocol for any ActorRef<A> that handles all messages
+//
+// All generated types live in the `context_protocol` module.
 
-pub(crate) struct PushToken {
-    pub token: llama_token,
-    pub pos: llama_pos,
-    pub seq_id: llama_seq_id,
-}
-impl Message for PushToken {
-    type Result = Result<Vec<f32>, DecodeError>;
-}
-
-pub(crate) struct SampleToken {
-    pub sampler_ptr: *mut llama_sampler,
-}
-// SAFETY: The raw pointer is only used inside the actor's handler while
-// the caller is blocked on the synchronous request(). The sampler is not
-// accessed concurrently.
-unsafe impl Send for SampleToken {}
-impl Message for SampleToken {
-    type Result = llama_token;
-}
-
-pub(crate) struct MemorySeqRm {
-    pub seq_id: llama_seq_id,
-    pub p0: llama_pos,
-    pub p1: llama_pos,
-}
-impl Message for MemorySeqRm {
-    type Result = bool;
-}
-
-pub(crate) struct MemorySeqCp {
-    pub src: llama_seq_id,
-    pub dst: llama_seq_id,
-    pub p0: llama_pos,
-    pub p1: llama_pos,
-}
-impl Message for MemorySeqCp {
-    type Result = ();
-}
-
-pub(crate) struct MemorySeqAdd {
-    pub seq_id: llama_seq_id,
-    pub p0: llama_pos,
-    pub p1: llama_pos,
-    pub delta: llama_pos,
-}
-impl Message for MemorySeqAdd {
-    type Result = ();
-}
-
-pub(crate) struct MemorySeqPosMin {
-    pub seq_id: llama_seq_id,
-}
-impl Message for MemorySeqPosMin {
-    type Result = llama_pos;
-}
-
-pub(crate) struct MemorySeqPosMax {
-    pub seq_id: llama_seq_id,
-}
-impl Message for MemorySeqPosMax {
-    type Result = llama_pos;
-}
-
-pub(crate) struct GetNCtx;
-impl Message for GetNCtx {
-    type Result = u32;
-}
-
-pub(crate) struct CanShift;
-impl Message for CanShift {
-    type Result = bool;
-}
-
-pub(crate) struct FreeSlots;
-impl Message for FreeSlots {
-    type Result = usize;
-}
-
-pub(crate) struct GetPerf;
-impl Message for GetPerf {
-    type Result = llama_perf_context_data;
+#[protocol]
+pub(crate) trait ContextProtocol: Send + Sync {
+    fn checkout_seq(&self) -> Response<Option<llama_seq_id>>;
+    fn release_seq(&self, seq_id: llama_seq_id) -> Response<()>;
+    fn push_token(
+        &self,
+        token: llama_token,
+        pos: llama_pos,
+        seq_id: llama_seq_id,
+    ) -> Response<Result<Vec<f32>, DecodeError>>;
+    fn sample_token(&self, sampler: SamplerPtr) -> Response<llama_token>;
+    fn memory_seq_rm(
+        &self,
+        seq_id: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+    ) -> Response<bool>;
+    fn memory_seq_cp(
+        &self,
+        src: llama_seq_id,
+        dst: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+    ) -> Response<()>;
+    fn memory_seq_add(
+        &self,
+        seq_id: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+        delta: llama_pos,
+    ) -> Response<()>;
+    fn memory_seq_pos_min(&self, seq_id: llama_seq_id) -> Response<llama_pos>;
+    fn memory_seq_pos_max(&self, seq_id: llama_seq_id) -> Response<llama_pos>;
+    fn get_n_ctx(&self) -> Response<u32>;
+    fn can_shift(&self) -> Response<bool>;
+    fn free_slots(&self) -> Response<usize>;
+    fn get_perf(&self) -> Response<llama_perf_context_data>;
 }
 
 // -- The Actor --
@@ -156,8 +116,6 @@ pub(crate) struct ContextActor {
     checked_out: Vec<bool>,
 }
 
-// SAFETY: The ContextActor runs on a dedicated thread. The *mut llama_context
-// is only ever accessed from that thread, serialized through the actor mailbox.
 unsafe impl Send for ContextActor {}
 
 impl ContextActor {
@@ -190,6 +148,16 @@ impl ContextActor {
 
 impl Actor for ContextActor {}
 
+impl Drop for ContextActor {
+    fn drop(&mut self) {
+        unsafe { llama_free(self.ctx) };
+    }
+}
+
+// -- Handlers: one per protocol method --
+
+use context_protocol::*;
+
 impl Handler<CheckoutSeq> for ContextActor {
     fn handle(&mut self, _msg: CheckoutSeq, _ctx: &ActorContext<Self>) -> Option<llama_seq_id> {
         for (i, slot) in self.checked_out.iter_mut().enumerate() {
@@ -221,14 +189,13 @@ impl Handler<PushToken> for ContextActor {
         common::batch_add(&mut self.batch, msg.token, msg.pos, &[msg.seq_id], true)
             .map_err(|_| DecodeError::InvalidInput)?;
         self.decode_batch()?;
-        self.get_logits_ith(0)
-            .ok_or(DecodeError::FatalError)
+        self.get_logits_ith(0).ok_or(DecodeError::FatalError)
     }
 }
 
 impl Handler<SampleToken> for ContextActor {
     fn handle(&mut self, msg: SampleToken, _ctx: &ActorContext<Self>) -> llama_token {
-        unsafe { llama_sampler_sample(msg.sampler_ptr, self.ctx, -1) }
+        unsafe { llama_sampler_sample(msg.sampler.0, self.ctx, -1) }
     }
 }
 
@@ -246,7 +213,9 @@ impl Handler<MemorySeqCp> for ContextActor {
 
 impl Handler<MemorySeqAdd> for ContextActor {
     fn handle(&mut self, msg: MemorySeqAdd, _ctx: &ActorContext<Self>) {
-        unsafe { llama_memory_seq_add(self.get_memory(), msg.seq_id, msg.p0, msg.p1, msg.delta) }
+        unsafe {
+            llama_memory_seq_add(self.get_memory(), msg.seq_id, msg.p0, msg.p1, msg.delta)
+        }
     }
 }
 
@@ -286,15 +255,8 @@ impl Handler<GetPerf> for ContextActor {
     }
 }
 
-impl Drop for ContextActor {
-    fn drop(&mut self) {
-        unsafe { llama_free(self.ctx) };
-    }
-}
-
 // -- Public handle --
 
-/// Ref-counted inner: the actor stops when the last clone drops.
 struct ContextInner {
     actor: ActorRef<ContextActor>,
 }
@@ -302,8 +264,6 @@ struct ContextInner {
 impl Drop for ContextInner {
     fn drop(&mut self) {
         self.actor.context().stop();
-        // Send a no-op message to wake the actor from recv_timeout immediately
-        // instead of waiting up to 100ms for the timeout to expire.
         let _ = self.actor.send(FreeSlots);
         self.actor.join();
     }
@@ -311,9 +271,7 @@ impl Drop for ContextInner {
 
 /// Handle to a running context actor. Clone + Send + Sync.
 ///
-/// All operations are serialized through the actor mailbox.
-/// The actor thread is stopped when the last clone (including
-/// those held by Sequences) is dropped.
+/// The actor thread is stopped when the last clone is dropped.
 #[derive(Clone)]
 pub struct Context {
     inner: Arc<ContextInner>,
@@ -346,31 +304,29 @@ impl Context {
     }
 
     pub fn sequence(&self) -> Option<crate::Sequence> {
-        let seq_id = self.actor().request(CheckoutSeq).unwrap();
+        let seq_id = self.actor().checkout_seq().unwrap();
         seq_id.map(|id| crate::Sequence::new(self.clone(), id))
     }
 
     pub fn free_slots(&self) -> usize {
-        self.actor().request(FreeSlots).unwrap()
+        self.actor().free_slots().unwrap()
     }
 
     pub fn n_ctx(&self) -> u32 {
-        self.actor().request(GetNCtx).unwrap()
+        self.actor().get_n_ctx().unwrap()
     }
 
     pub fn can_shift(&self) -> bool {
-        self.actor().request(CanShift).unwrap()
+        self.actor().can_shift().unwrap()
     }
 
     pub fn perf(&self) -> llama_perf_context_data {
-        self.actor().request(GetPerf).unwrap()
+        self.actor().get_perf().unwrap()
     }
 
     pub fn sample<S: crate::LlamaSampler>(&self, sampler: &S, _idx: i32) -> llama_token {
         self.actor()
-            .request(SampleToken {
-                sampler_ptr: sampler.as_ptr(),
-            })
+            .sample_token(SamplerPtr(sampler.as_ptr()))
             .unwrap()
     }
 }

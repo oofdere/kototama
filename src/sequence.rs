@@ -1,4 +1,4 @@
-use crate::context::*;
+use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
 use crate::{Context, LlamaSampler};
 use llama_sys::*;
 use std::ops::{Index, Range};
@@ -7,7 +7,7 @@ use std::ops::{Index, Range};
 /// handle and communicates with the context actor via messages.
 ///
 /// Logits from the last `push()` are cached locally, so `sample()` and
-/// `logits()` don't need to round-trip to the actor.
+/// `logits()` don't need a second round-trip.
 pub struct Sequence {
     ctx: Context,
     id: llama_seq_id,
@@ -38,11 +38,7 @@ impl Sequence {
         self.logits = self
             .ctx
             .actor()
-            .request(PushToken {
-                token,
-                pos,
-                seq_id: self.id,
-            })
+            .push_token(token, pos, self.id)
             .unwrap()
             .expect("decode failed");
         self.tokens.push(token);
@@ -96,17 +92,11 @@ impl Sequence {
     }
 
     pub fn pos_min(&self) -> llama_pos {
-        self.ctx
-            .actor()
-            .request(MemorySeqPosMin { seq_id: self.id })
-            .unwrap()
+        self.ctx.actor().memory_seq_pos_min(self.id).unwrap()
     }
 
     pub fn pos_max(&self) -> llama_pos {
-        self.ctx
-            .actor()
-            .request(MemorySeqPosMax { seq_id: self.id })
-            .unwrap()
+        self.ctx.actor().memory_seq_pos_max(self.id).unwrap()
     }
 
     pub fn tokens(&self) -> &[llama_token] {
@@ -116,47 +106,28 @@ impl Sequence {
     pub fn kv_remove(&mut self, range: Range<llama_pos>) -> bool {
         self.ctx
             .actor()
-            .request(MemorySeqRm {
-                seq_id: self.id,
-                p0: range.start,
-                p1: range.end,
-            })
+            .memory_seq_rm(self.id, range.start, range.end)
             .unwrap()
     }
 
     pub fn kv_copy(&self, other: &mut Self, range: Range<llama_pos>) {
         self.ctx
             .actor()
-            .request(MemorySeqCp {
-                src: self.id,
-                dst: other.id,
-                p0: range.start,
-                p1: range.end,
-            })
+            .memory_seq_cp(self.id, other.id, range.start, range.end)
             .unwrap()
     }
 
     pub fn kv_shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
         self.ctx
             .actor()
-            .request(MemorySeqAdd {
-                seq_id: self.id,
-                p0: range.start,
-                p1: range.end,
-                delta,
-            })
+            .memory_seq_add(self.id, range.start, range.end, delta)
             .unwrap()
     }
 
-    /// Sample a token using the cached logits from the last push().
-    /// The sampler pointer is sent to the context actor thread for the
-    /// call to llama_sampler_sample, then the token is returned.
     pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> llama_token {
         self.ctx
             .actor()
-            .request(SampleToken {
-                sampler_ptr: sampler.as_ptr(),
-            })
+            .sample_token(SamplerPtr(sampler.as_ptr()))
             .unwrap()
     }
 }
@@ -171,8 +142,9 @@ impl Index<usize> for Sequence {
 
 impl Drop for Sequence {
     fn drop(&mut self) {
-        // Tell the actor to clean up our KV cache entries and release the slot.
-        // Ignore errors — the actor may have already stopped.
-        let _ = self.ctx.actor().request(ReleaseSeq { seq_id: self.id });
+        let _ = self
+            .ctx
+            .actor()
+            .request(context_protocol::ReleaseSeq { seq_id: self.id });
     }
 }
