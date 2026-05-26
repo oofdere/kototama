@@ -1,13 +1,14 @@
 use crate::context::*;
-use crate::{Context, LlamaSampler};
+use crate::{common, Context, LlamaSampler};
 use llama_sys::*;
 use std::ops::{Index, Range};
 
 /// A sequence handle. No lifetime parameters — holds a clone of the Context
-/// handle and communicates with the context actor via messages.
+/// handle and the shared Mutex-guarded context state.
 ///
-/// Logits from the last `push()` are cached locally, so `sample()` and
-/// `logits()` don't need to round-trip to the actor.
+/// Hot-path operations (push, decode, sample, logits) go directly through
+/// the Mutex — no actor message overhead. Slot checkout/release still goes
+/// through the actor.
 pub struct Sequence {
     ctx: Context,
     id: llama_seq_id,
@@ -35,16 +36,13 @@ impl Sequence {
 
     pub fn push(&mut self, token: llama_token) {
         let pos = self.tokens.len() as i32;
-        self.logits = self
-            .ctx
-            .actor
-            .request(PushToken {
-                token,
-                pos,
-                seq_id: self.id,
-            })
-            .unwrap()
-            .expect("decode failed");
+        let mut shared = self.ctx.shared().lock().unwrap();
+        common::batch_clear(&mut shared.batch);
+        common::batch_add(&mut shared.batch, token, pos, &[self.id], true)
+            .expect("batch add failed");
+        shared.decode_batch().expect("decode failed");
+        self.logits = shared.get_logits_ith(0).expect("no logits");
+        drop(shared);
         self.tokens.push(token);
     }
 
@@ -96,17 +94,13 @@ impl Sequence {
     }
 
     pub fn pos_min(&self) -> llama_pos {
-        self.ctx
-            .actor
-            .request(MemorySeqPosMin { seq_id: self.id })
-            .unwrap()
+        let shared = self.ctx.shared().lock().unwrap();
+        unsafe { llama_memory_seq_pos_min(shared.get_memory(), self.id) }
     }
 
     pub fn pos_max(&self) -> llama_pos {
-        self.ctx
-            .actor
-            .request(MemorySeqPosMax { seq_id: self.id })
-            .unwrap()
+        let shared = self.ctx.shared().lock().unwrap();
+        unsafe { llama_memory_seq_pos_max(shared.get_memory(), self.id) }
     }
 
     pub fn tokens(&self) -> &[llama_token] {
@@ -114,50 +108,36 @@ impl Sequence {
     }
 
     pub fn kv_remove(&mut self, range: Range<llama_pos>) -> bool {
-        self.ctx
-            .actor
-            .request(MemorySeqRm {
-                seq_id: self.id,
-                p0: range.start,
-                p1: range.end,
-            })
-            .unwrap()
+        let shared = self.ctx.shared().lock().unwrap();
+        unsafe {
+            llama_memory_seq_rm(shared.get_memory(), self.id, range.start, range.end)
+        }
     }
 
     pub fn kv_copy(&self, other: &mut Self, range: Range<llama_pos>) {
-        self.ctx
-            .actor
-            .request(MemorySeqCp {
-                src: self.id,
-                dst: other.id,
-                p0: range.start,
-                p1: range.end,
-            })
-            .unwrap()
+        let shared = self.ctx.shared().lock().unwrap();
+        unsafe {
+            llama_memory_seq_cp(
+                shared.get_memory(),
+                self.id,
+                other.id,
+                range.start,
+                range.end,
+            )
+        }
     }
 
     pub fn kv_shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
-        self.ctx
-            .actor
-            .request(MemorySeqAdd {
-                seq_id: self.id,
-                p0: range.start,
-                p1: range.end,
-                delta,
-            })
-            .unwrap()
+        let shared = self.ctx.shared().lock().unwrap();
+        unsafe {
+            llama_memory_seq_add(shared.get_memory(), self.id, range.start, range.end, delta)
+        }
     }
 
     /// Sample a token using the cached logits from the last push().
-    /// The sampler pointer is sent to the context actor thread for the
-    /// call to llama_sampler_sample, then the token is returned.
     pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> llama_token {
-        self.ctx
-            .actor
-            .request(SampleToken {
-                sampler_ptr: sampler.as_ptr(),
-            })
-            .unwrap()
+        let shared = self.ctx.shared().lock().unwrap();
+        unsafe { llama_sampler_sample(sampler.as_ptr(), shared.ctx, -1) }
     }
 }
 
@@ -173,6 +153,6 @@ impl Drop for Sequence {
     fn drop(&mut self) {
         // Tell the actor to clean up our KV cache entries and release the slot.
         // Ignore errors — the actor may have already stopped.
-        let _ = self.ctx.actor.request(ReleaseSeq { seq_id: self.id });
+        let _ = self.ctx.actor().request(ReleaseSeq { seq_id: self.id });
     }
 }
