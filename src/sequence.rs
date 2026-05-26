@@ -138,7 +138,8 @@ impl Sequence {
         self.ctx
             .actor()
             .memory_seq_cp(self.id, other.id, range.start, range.end)
-            .unwrap()
+            .unwrap();
+        other.logits = None;
     }
 
     pub fn kv_shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
