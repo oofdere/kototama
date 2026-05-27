@@ -343,3 +343,184 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&chain);
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+// ---------- Logits cache invalidation (regression coverage for 097db1d, 8436f38) ----------
+//
+// Mutations to the KV cache or the token vector must drop the cached logits,
+// because the cache reflects the model's distribution *for the last decoded
+// token*. After pop/remove/kv_remove/kv_copy/kv_shift the last token has
+// either changed or moved, so any cached vector is stale.
+
+#[test]
+fn logits_none_after_pop() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+    assert!(seq.logits().is_some(), "logits should be cached after push");
+    seq.pop();
+    assert!(seq.logits().is_none(), "pop() must invalidate cached logits");
+}
+
+#[test]
+fn logits_none_after_remove() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens);
+    assert!(seq.logits().is_some());
+    let ok = seq.remove(0..1);
+    assert!(ok);
+    assert!(seq.logits().is_none(), "remove() must invalidate cached logits");
+}
+
+#[test]
+fn logits_none_after_kv_remove() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens);
+    assert!(seq.logits().is_some());
+    let n = seq.len() as i32;
+    let ok = seq.kv_remove(0..n);
+    assert!(ok);
+    assert!(seq.logits().is_none(), "kv_remove() must invalidate cached logits");
+}
+
+#[test]
+fn logits_none_on_copy_to_destination() {
+    // copy_to() writes into `other`'s KV slot; `other`'s cached logits no
+    // longer match the new last token and must be cleared. (Regression for
+    // 8436f38: "invalidate destination logits in kv_copy()".)
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hi", false, false);
+    src.extend(&tokens);
+    dst.extend(&tokens);
+    assert!(dst.logits().is_some(), "dst should have cached logits before copy");
+    src.copy_to(&mut dst, 0..tokens.len());
+    assert!(
+        dst.logits().is_none(),
+        "copy_to() must invalidate the destination's cached logits"
+    );
+}
+
+#[test]
+fn logits_none_on_copy_from_destination() {
+    // copy_from() is implemented in terms of copy_to(), so the same
+    // invalidation should reach the receiver.
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hi", false, false);
+    src.extend(&tokens);
+    dst.extend(&tokens);
+    dst.copy_from(&src, 0..tokens.len());
+    assert!(dst.logits().is_none(), "copy_from() must invalidate the receiver's logits");
+}
+
+#[test]
+fn logits_none_after_kv_shift() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    if !ctx.can_shift() {
+        return;
+    }
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+    assert!(seq.logits().is_some());
+    let n = seq.len() as i32;
+    seq.kv_shift(0..n, 1);
+    assert!(seq.logits().is_none(), "kv_shift() must invalidate cached logits");
+}
+
+// ---------- Sequence::decode() (added in cd5b7c6) ----------
+//
+// decode() re-runs decode on the *current* last token to repopulate the
+// logits cache after a mutation. On an empty sequence it must be a no-op.
+
+#[test]
+fn decode_empty_sequence_is_noop() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    assert!(seq.is_empty());
+    seq.decode();
+    assert!(seq.is_empty(), "decode() on empty sequence must not push a token");
+    assert!(
+        seq.logits().is_none(),
+        "decode() on empty sequence must not fabricate logits"
+    );
+}
+
+#[test]
+fn decode_restores_logits_after_pop() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens);
+    seq.pop();
+    assert!(seq.logits().is_none(), "pop() invalidates logits");
+    seq.decode();
+    assert!(
+        seq.logits().is_some(),
+        "decode() must repopulate logits after pop()"
+    );
+    assert_eq!(
+        seq.logits().unwrap().len(),
+        model.n_tokens() as usize,
+        "decoded logits should match vocab size"
+    );
+}
+
+#[test]
+fn decode_restores_logits_after_trailing_remove() {
+    // Use a trailing-range remove so KV positions stay consistent with the
+    // token vector — remove from the middle desyncs positions and is out of
+    // scope for this test.
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens);
+    let n = seq.len();
+    let ok = seq.remove((n - 1)..n);
+    assert!(ok);
+    assert!(seq.logits().is_none());
+    seq.decode();
+    assert!(
+        seq.logits().is_some(),
+        "decode() must repopulate logits after a trailing remove()"
+    );
+}
+
+#[test]
+fn decode_preserves_token_count() {
+    // decode() must not push a new token — it only refreshes the logits cache.
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+    let len_before = seq.len();
+    let tokens_before = seq.tokens().to_vec();
+    seq.decode();
+    assert_eq!(seq.len(), len_before, "decode() must not change len()");
+    assert_eq!(
+        seq.tokens(),
+        tokens_before.as_slice(),
+        "decode() must not change the token vector"
+    );
+}
