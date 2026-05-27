@@ -168,6 +168,14 @@ impl Model {
     }
 
     pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
+        // llama_token_to_piece's first action on the C++ side is
+        // `token_get_attr(token)`, which does `id_to_token.at(id)`. For an
+        // out-of-range token that throws `std::out_of_range`, and a C++
+        // exception unwinding through the C ABI back into Rust is undefined
+        // behavior. Reject before crossing the FFI boundary.
+        if token < 0 || token >= self.n_tokens() {
+            return Err(());
+        }
         let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(

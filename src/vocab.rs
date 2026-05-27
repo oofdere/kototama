@@ -44,26 +44,57 @@ impl Model {
     }
 
     #[inline]
-    pub fn get_attr(&self, token: llama_token) -> llama_token_attr {
-        unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
+    pub fn get_attr(&self, token: llama_token) -> Option<llama_token_attr> {
+        if !self.token_in_range(token) {
+            return None;
+        }
+        Some(unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) })
     }
 
     #[inline]
-    pub fn get_score(&self, token: llama_token) -> f32 {
-        unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
+    pub fn get_score(&self, token: llama_token) -> Option<f32> {
+        if !self.token_in_range(token) {
+            return None;
+        }
+        Some(unsafe { llama_vocab_get_score(self.vocab_ptr(), token) })
     }
 
     #[inline]
-    pub fn get_text(&self, token: llama_token) -> &CStr {
+    pub fn get_text(&self, token: llama_token) -> Option<&CStr> {
+        if !self.token_in_range(token) {
+            return None;
+        }
         unsafe {
             let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
-            CStr::from_ptr(ptr)
+            if ptr.is_null() {
+                None
+            } else {
+                Some(CStr::from_ptr(ptr))
+            }
         }
     }
 
     #[inline]
     pub fn is_control(&self, token: llama_token) -> bool {
+        if !self.token_in_range(token) {
+            return false;
+        }
         unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
+    }
+
+    /// `true` if `token` is in `[0, n_tokens())` and so a valid index into the
+    /// underlying `id_to_token` vector.
+    ///
+    /// Several `llama_vocab_*` accessors hand the token straight to
+    /// `id_to_token.at(id)` or `id_to_token[id]` on the C++ side. The first
+    /// throws `std::out_of_range` for invalid ids, and a C++ exception
+    /// unwinding through the C ABI back into Rust is undefined behavior. The
+    /// second is plain out-of-bounds vector access — undefined behavior in
+    /// C++. Either is reachable from safe Rust because the wrappers take a
+    /// caller-supplied `i32`, so we gate every such call on this check.
+    #[inline]
+    fn token_in_range(&self, token: llama_token) -> bool {
+        token >= 0 && token < self.n_tokens()
     }
 
     #[inline]
