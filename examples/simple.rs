@@ -29,6 +29,11 @@ fn main() {
     let ngl = args.n_gpu_layers;
     let n_predict = args.n_predict;
 
+    if n_predict <= 0 {
+        eprintln!("n_predict must be positive, got {n_predict}");
+        std::process::exit(1);
+    }
+
     // backends get loaded and freed automatically
 
     // Initialize the model
@@ -74,6 +79,7 @@ fn main() {
     for _ in 0..n_predict {
         let (token, _) = seq
             .logits()
+            .expect("no logits")
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.total_cmp(b))
@@ -88,7 +94,7 @@ fn main() {
 
     println!();
 
-    let t_main_end = unsafe { llama_sys::llama_time_us() };
+    let _t_main_end = unsafe { llama_sys::llama_time_us() };
 
     drop(seq);
 }

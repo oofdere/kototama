@@ -1,8 +1,8 @@
 mod common;
 
-use rusty_llama::Context;
+use rusty_llama::{Context, Sampler, SamplerChain, SamplerChainParams};
 
-fn setup() -> (&'static rusty_llama::Model, rusty_llama::ContextParams) {
+fn setup() -> (rusty_llama::Model, rusty_llama::ContextParams) {
     common::load_model_and_context()
 }
 
@@ -87,7 +87,7 @@ fn logits_len_equals_vocab_size_after_push() {
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
     seq.push(tokens[0]);
-    assert_eq!(seq.logits().len(), model.n_tokens() as usize);
+    assert_eq!(seq.logits().unwrap().len(), model.n_tokens() as usize);
 }
 
 #[test]
@@ -108,7 +108,6 @@ fn pos_min_max_after_push() {
     let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
-    // Before any push, should return -1 (empty)
     assert_eq!(seq.pos_min(), -1);
     assert_eq!(seq.pos_max(), -1);
     let tokens = model.tokenize("hello", false, false);
@@ -120,7 +119,6 @@ fn pos_min_max_after_push() {
 #[test]
 fn copy_to() {
     let (model, _) = setup();
-    // KV copies across sequences require kv_unified = true
     let mut params = common::test_ctx_params();
     params.kv_unified = true;
     let ctx = Context::new(&model, &params).unwrap();
@@ -128,7 +126,6 @@ fn copy_to() {
     let mut dst = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
     src.extend(&tokens);
-    // dst needs its own decoded state before we can overwrite it via KV copy
     dst.extend(&tokens);
     src.copy_to(&mut dst, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
@@ -159,8 +156,7 @@ fn multiple_sequences_generate_different_logits() {
     let tokens2 = model.tokenize("world", false, false);
     seq1.extend(&tokens1);
     seq2.extend(&tokens2);
-    // Verify that the final logits differ between sequences
-    assert_ne!(seq1.logits(), seq2.logits());
+    assert_ne!(seq1.logits().unwrap(), seq2.logits().unwrap());
 }
 
 #[test]
@@ -212,4 +208,138 @@ fn copy_from() {
     dst.extend(&tokens);
     dst.copy_from(&src, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
+}
+
+// ---------- Sequence::is_empty() (new in this PR) ----------
+
+#[test]
+fn is_empty_true_before_any_push() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let seq = ctx.sequence().unwrap();
+    assert!(seq.is_empty(), "freshly created sequence should be empty");
+}
+
+#[test]
+fn is_empty_false_after_push() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hi", false, false);
+    seq.push(tokens[0]);
+    assert!(!seq.is_empty(), "sequence should not be empty after a push");
+}
+
+#[test]
+fn is_empty_false_after_extend() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+    assert!(!seq.is_empty());
+}
+
+#[test]
+fn is_empty_true_after_pop_clears_sequence() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hi", false, false);
+    // push exactly one token then pop it — sequence should be empty again
+    for &t in &tokens {
+        seq.push(t);
+    }
+    for _ in 0..tokens.len() {
+        seq.pop();
+    }
+    assert!(seq.is_empty(), "sequence should be empty after all tokens are popped");
+}
+
+#[test]
+fn is_empty_consistent_with_len() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    assert_eq!(seq.is_empty(), seq.len() == 0);
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+    assert_eq!(seq.is_empty(), seq.len() == 0);
+}
+
+// ---------- Sequence::sample() (moved from Context to Sequence in this PR) ----------
+
+#[test]
+fn sequence_sample_greedy_is_valid_token() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let token = seq.sample(&chain);
+    assert!(token >= 0 && token < model.n_tokens(),
+        "sampled token should be within vocab range");
+}
+
+#[test]
+fn sequence_sample_matches_argmax() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("once upon", false, false);
+    seq.extend(&tokens);
+
+    let argmax = seq
+        .logits()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(i, _)| i as i32)
+        .unwrap();
+
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let sampled = seq.sample(&chain);
+
+    assert_eq!(sampled, argmax,
+        "Sequence::sample with greedy should match manual argmax");
+}
+
+#[test]
+fn sequence_sample_with_temperature_in_vocab_range() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens);
+
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::temp(0.8))
+        .add(Sampler::top_k(40))
+        .add(Sampler::dist(123));
+    let token = seq.sample(&chain);
+    assert!(token >= 0 && token < model.n_tokens(),
+        "temperature-sampled token should be in vocab range");
+}
+
+#[test]
+fn sequence_sample_does_not_require_mut() {
+    // sample() takes &self — verify it compiles and runs with a shared borrow
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("test", false, false);
+    seq.extend(&tokens);
+
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+
+    // Both immutable borrows should coexist
+    let _logits = seq.logits();
+    let token = seq.sample(&chain);
+    assert!(token >= 0 && token < model.n_tokens());
 }

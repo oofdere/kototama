@@ -35,25 +35,24 @@ fn tokenize_deterministic() {
 #[test]
 fn greedy_sample_matches_argmax() {
     let (model, params) = common::load_model_and_context();
-    let mut ctx = Context::new(&model, &params).unwrap();
+    let ctx = Context::new(&model, &params).unwrap();
 
-    // Build sequence and grab logits before releasing the borrow
-    let argmax = {
-        let mut seq = ctx.sequence().unwrap();
-        let tokens = model.tokenize("Once upon a time", true, false);
-        seq.extend(&tokens);
-        seq.logits()
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(i, _)| i as i32)
-            .unwrap()
-    };
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("Once upon a time", true, false);
+    seq.extend(&tokens);
 
-    // Greedy sampling via sampler (needs &mut ctx, so seq must be dropped)
+    let mut argmax = 0i32;
+    let mut best = f32::NEG_INFINITY;
+    for (i, &v) in seq.logits().unwrap().iter().enumerate() {
+        if v > best {
+            best = v;
+            argmax = i as i32;
+        }
+    }
+
     let chain = SamplerChain::new(&SamplerChainParams::new())
         .add(Sampler::greedy());
-    let sampled = ctx.sample(&chain, 0);
+    let sampled = seq.sample(&chain);
 
     assert_eq!(sampled, argmax, "greedy sampler should pick the argmax token");
 }
@@ -61,20 +60,18 @@ fn greedy_sample_matches_argmax() {
 #[test]
 fn sample_with_temperature_does_not_crash() {
     let (model, params) = common::load_model_and_context();
-    let mut ctx = Context::new(&model, &params).unwrap();
+    let ctx = Context::new(&model, &params).unwrap();
 
-    {
-        let mut seq = ctx.sequence().unwrap();
-        let tokens = model.tokenize("hello", true, false);
-        seq.extend(&tokens);
-    }
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", true, false);
+    seq.extend(&tokens);
 
     let chain = SamplerChain::new(&SamplerChainParams::new())
         .add(Sampler::temp(0.8))
         .add(Sampler::top_k(40))
         .add(Sampler::top_p(0.95, 1))
         .add(Sampler::dist(42));
-    let token = ctx.sample(&chain, 0);
+    let token = seq.sample(&chain);
     assert!(token >= 0 && token < model.n_tokens());
 }
 
@@ -94,7 +91,7 @@ fn two_sequences_independent() {
 
     assert_eq!(seq_a.tokens(), tokens_a.as_slice());
     assert_eq!(seq_b.tokens(), tokens_b.as_slice());
-    assert_ne!(seq_a.logits(), seq_b.logits(), "different prompts should produce different logits");
+    assert_ne!(seq_a.logits().unwrap(), seq_b.logits().unwrap(), "different prompts should produce different logits");
 }
 
 // ---------- Sequence logits state ----------
@@ -104,7 +101,7 @@ fn logits_empty_before_push() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
     let seq = ctx.sequence().unwrap();
-    assert!(seq.logits().is_empty(), "logits should be empty before any token is pushed");
+    assert!(seq.logits().is_none(), "logits should be None before any token is pushed");
 }
 
 // ---------- Generation determinism ----------
@@ -123,6 +120,7 @@ fn greedy_generation_is_deterministic() {
         for _ in 0..5 {
             let token = seq
                 .logits()
+                .unwrap()
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.total_cmp(b))

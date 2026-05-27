@@ -1,47 +1,63 @@
-use crate::{common::*, Batch, Context, LlamaSampler};
+use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
+use crate::{Context, LlamaSampler};
 use llama_sys::*;
-use std::{mem::ManuallyDrop, ops::{Index, Range}};
+use std::ops::{Index, Range};
 
-pub struct Sequence<'ctx, 'a> {
-    ctx: ManuallyDrop<&'a Context<'ctx>>,
+/// A sequence handle. No lifetime parameters — holds a clone of the Context
+/// handle and communicates with the context actor via messages.
+///
+/// Logits from the last `push()` are cached locally, so `sample()` and
+/// `logits()` don't need a second round-trip.
+pub struct Sequence {
+    ctx: Context,
     id: llama_seq_id,
-    batch: Batch,
     tokens: Vec<llama_token>,
-    logits: Vec<f32>
+    logits: Option<Vec<f32>>,
 }
 
-impl<'ctx, 'a> Sequence<'ctx, 'a> {
-    pub(crate) fn new(ctx: &'a Context<'ctx>, id: llama_seq_id) -> Self {
-        let batch = Batch::init_token(1, ctx.params().n_seq_max as i32);
-        unsafe {
-            *batch.n_seq_id.add(0) = 1;
-            *(*batch.seq_id.add(0)).add(0) = id;
-            *batch.logits.add(0) = 1; // i8, 1 = give me logits
-        }
-
+impl Sequence {
+    pub(crate) fn new(ctx: Context, id: llama_seq_id) -> Self {
         Self {
-            ctx: ManuallyDrop::new(ctx),
+            ctx,
             id,
-            batch,
             tokens: Vec::new(),
-            logits: Vec::new(),
+            logits: None,
         }
     }
 
-    pub fn logits(&self) -> &[f32] {
-        &self.logits
+    pub fn logits(&self) -> Option<&[f32]> {
+        self.logits.as_deref()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
     }
 
     pub fn push(&mut self, token: llama_token) {
         let pos = self.tokens.len() as i32;
-        batch_clear(&mut self.batch);
-        batch_add(&mut self.batch, token, pos, &[self.id], true).unwrap();
-        self.ctx.decode(*self.batch).unwrap();
-        self.logits = self
-            .ctx
-            .get_logits_ith(0)
-            .expect("logits should be available for a freshly decoded token");
+        self.logits = Some(
+            self.ctx
+                .actor()
+                .push_token(token, pos, self.id)
+                .unwrap()
+                .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
+        );
         self.tokens.push(token);
+    }
+
+    /// Re-decode the last token to refresh logits without pushing a new one.
+    /// Useful after `pop()`, `remove()`, or other mutations that invalidate logits.
+    pub fn decode(&mut self) {
+        if let Some(&last_token) = self.tokens.last() {
+            let pos = (self.tokens.len() - 1) as i32;
+            self.logits = Some(
+                self.ctx
+                    .actor()
+                    .push_token(last_token, pos, self.id)
+                    .unwrap()
+                    .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
+            );
+        }
     }
 
     pub fn pop(&mut self) -> Option<llama_token> {
@@ -50,7 +66,9 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
             return None;
         }
         if self.kv_remove((len - 1)..len) {
-            self.tokens.pop()
+            let token = self.tokens.pop();
+            self.logits = None;
+            token
         } else {
             None
         }
@@ -70,121 +88,77 @@ impl<'ctx, 'a> Sequence<'ctx, 'a> {
         self.tokens.get(index).copied()
     }
 
-    /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
-    ///
-    /// Returns false if a partial sequence cannot be removed. Removing a whole sequence never fails.
-    ///
-    /// - if start is negative it will be treated as `0`
-    /// - if end is negative it will be treated as the end of the sequence
     pub fn remove(&mut self, range: Range<usize>) -> bool {
         if self.kv_remove(range.start as i32..range.end as i32) {
             self.tokens.drain(range);
+            self.logits = None;
             true
         } else {
             false
         }
     }
 
-    /// overwrites the other sequence with the tokens in this sequence
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
         self.kv_copy(other, range.start as i32..range.end as i32);
         other.tokens.clear();
         other
             .tokens
             .extend_from_slice(&self.tokens[range.start..range.end]);
+        other.logits = None;
     }
 
-    /// overwrites the tokens in this sequence with the tokens from the other sequence
     pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
         other.copy_to(self, range);
     }
 
-    /// Adds relative position "delta" to all tokens that belong to the specified sequence and have positions in [p0, p1)
-    /// p0 < 0 : [0,  p1]
-    /// p1 < 0 : [p0, inf)
-    fn shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
-        if self.ctx.can_shift() {
-            unsafe {
-                llama_memory_seq_add(
-                    self.ctx.get_memory(),
-                    self.id as i32,
-                    range.start,
-                    range.end,
-                    delta,
-                )
-            }
-        } else {
-            todo!("add fallback for when seq_add is not supported")
-        }
-    }
-
-    /// Returns the smallest position present in the memory for the specified sequence.
-    ///
-    /// This is typically non-zero only for SWA caches.
-    ///
-    /// Note that all positions in the range pos_min, pos_max are guaranteed to be present in the memory.
-    ///
-    /// Return -1 if the sequence is empty.
     pub fn pos_min(&self) -> llama_pos {
-        unsafe { llama_memory_seq_pos_min(self.ctx.get_memory(), self.id as i32) }
+        self.ctx.actor().memory_seq_pos_min(self.id).unwrap()
     }
 
-    /// Returns the largest position present in the memory for the specified sequence.
-    ///
-    /// Note that all positions in the range pos_min, pos_max are guaranteed to be present in the memory.
-    ///
-    /// Return -1 if the sequence is empty.
     pub fn pos_max(&self) -> llama_pos {
-        unsafe { llama_memory_seq_pos_max(self.ctx.get_memory(), self.id as i32) }
+        self.ctx.actor().memory_seq_pos_max(self.id).unwrap()
     }
 
-    /// get a reference to the tokens for this sequence
     pub fn tokens(&self) -> &[llama_token] {
         &self.tokens
     }
 
-    /// Removes all tokens that belong to the specified sequence and have positions in the provided range.
-    ///
-    /// Returns false if a partial sequence cannot be removed. Removing a whole sequence never fails.
-    ///
-    /// - if start is negative it will be treated as `0`
-    /// - if end is negative it will be treated as the end of the sequence
     pub fn kv_remove(&mut self, range: Range<llama_pos>) -> bool {
-        unsafe { llama_memory_seq_rm(self.ctx.get_memory(), self.id, range.start, range.end) }
+        let ok = self.ctx
+            .actor()
+            .memory_seq_rm(self.id, range.start, range.end)
+            .unwrap();
+        if ok {
+            self.logits = None;
+        }
+        ok
     }
 
-    /// Copy all tokens that belong to the specified sequence to another sequence
-    /// - if start is negative it will be treated as `0`
-    /// - if end is negative it will be treated as the end of the sequence
     pub fn kv_copy(&self, other: &mut Self, range: Range<llama_pos>) {
-        unsafe {
-            llama_memory_seq_cp(
-                self.ctx.get_memory(),
-                self.id,
-                other.id,
-                range.start,
-                range.end,
-            )
-        }
+        self.ctx
+            .actor()
+            .memory_seq_cp(self.id, other.id, range.start, range.end)
+            .unwrap();
+        other.logits = None;
     }
 
-    /// Adds relative position "delta" to all tokens that belong to the specified sequence and have positions in [p0, p1)
-    /// - if start is negative it will be treated as `0`
-    /// - if end is negative it will be treated as the end of the sequence
     pub fn kv_shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
-        unsafe {
-            llama_memory_seq_add(
-                self.ctx.get_memory(),
-                self.id,
-                range.start,
-                range.end,
-                delta,
-            )
-        }
+        self.ctx
+            .actor()
+            .memory_seq_add(self.id, range.start, range.end, delta)
+            .unwrap();
+        self.logits = None;
+    }
+
+    pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> llama_token {
+        self.ctx
+            .actor()
+            .sample_token(SamplerPtr(sampler.as_ptr()))
+            .unwrap()
     }
 }
 
-impl<'ctx, 'a> Index<usize> for Sequence<'ctx, 'a> {
+impl Index<usize> for Sequence {
     type Output = llama_token;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -192,9 +166,11 @@ impl<'ctx, 'a> Index<usize> for Sequence<'ctx, 'a> {
     }
 }
 
-impl Drop for Sequence<'_, '_> {
+impl Drop for Sequence {
     fn drop(&mut self) {
-        unsafe { llama_memory_seq_rm(self.ctx.get_memory(), self.id, -1, -1) };
-        self.ctx.checked_out[self.id as usize].set(false);
+        let _ = self
+            .ctx
+            .actor()
+            .request(context_protocol::ReleaseSeq { seq_id: self.id });
     }
 }

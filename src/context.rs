@@ -1,17 +1,19 @@
 use llama_sys::*;
-use std::{
-    cell::Cell,
-    ops::{Deref, DerefMut},
-    vec,
-};
+use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
-use crate::{LlamaSampler, Model, Sequence};
+use spawned_concurrency::protocol;
+use spawned_concurrency::threads::{Actor, ActorRef, ActorStart, Context as ActorContext, Handler};
+use spawned_concurrency::Response;
+
+use crate::{common, Batch, Model};
+
+// -- Params --
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct ContextParams(llama_context_params);
 
-// todo builder pattern
 impl ContextParams {
     pub fn new() -> Self {
         Self(unsafe { llama_context_default_params() })
@@ -40,170 +42,291 @@ impl DerefMut for ContextParams {
     }
 }
 
-pub struct Context<'a> {
-    ctx: *mut llama_context,
-    params: &'a ContextParams,
-    pub(crate) checked_out: Box<[Cell<bool>]>,
-    model: &'a Model,
-}
+// -- Error type --
 
-#[derive(Debug)]
-pub enum ContextDecodeResult {
-    // could not find a KV slot for the batch (try reducing the size of the batch or increase the context)
+#[derive(Debug, Clone)]
+pub enum DecodeError {
     SlotNotFound,
-    // aborted (processed ubatches will remain in the context's memory)
     Aborted,
-    // invalid input batch
     InvalidInput,
-    // fatal error (processed ubatches will remain in the context's memory)
     FatalError,
 }
 
-impl<'a> Context<'a> {
-    pub fn new(model: &'a Model, params: &'a ContextParams) -> Result<Self, ()> {
-        let ctx = unsafe { llama_init_from_model(model.as_ptr() as *mut _, params.0) };
+// -- Send-safe wrapper for raw sampler pointer --
 
-        if ctx.is_null() {
-            return Err(());
-        }
+/// SAFETY: The pointer is only dereferenced inside the actor's handler
+/// while the caller is blocked on the synchronous request().
+pub(crate) struct SamplerPtr(pub *mut llama_sampler);
+unsafe impl Send for SamplerPtr {}
 
-        let ctx = Self {
-            ctx,
-            checked_out: vec![Cell::new(false); params.n_seq_max as usize].into_boxed_slice(),
-            params,
-            model,
-        };
+// -- Protocol: defines what messages the actor handles --
+//
+// The #[protocol] macro generates:
+//   - A message struct per method (e.g. checkout_seq -> CheckoutSeq)
+//   - impl Message for each struct
+//   - A blanket impl of ContextProtocol for any ActorRef<A> that handles all messages
+//
+// All generated types live in the `context_protocol` module.
 
-        Ok(ctx)
-    }
+#[protocol]
+pub(crate) trait ContextProtocol: Send + Sync {
+    fn checkout_seq(&self) -> Response<Option<llama_seq_id>>;
+    fn release_seq(&self, seq_id: llama_seq_id) -> Response<()>;
+    fn push_token(
+        &self,
+        token: llama_token,
+        pos: llama_pos,
+        seq_id: llama_seq_id,
+    ) -> Response<Result<Vec<f32>, DecodeError>>;
+    fn sample_token(&self, sampler: SamplerPtr) -> Response<llama_token>;
+    fn memory_seq_rm(
+        &self,
+        seq_id: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+    ) -> Response<bool>;
+    fn memory_seq_cp(
+        &self,
+        src: llama_seq_id,
+        dst: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+    ) -> Response<()>;
+    fn memory_seq_add(
+        &self,
+        seq_id: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+        delta: llama_pos,
+    ) -> Response<()>;
+    fn memory_seq_pos_min(&self, seq_id: llama_seq_id) -> Response<llama_pos>;
+    fn memory_seq_pos_max(&self, seq_id: llama_seq_id) -> Response<llama_pos>;
+    fn get_n_ctx(&self) -> Response<u32>;
+    fn can_shift(&self) -> Response<bool>;
+    fn free_slots(&self) -> Response<usize>;
+    fn get_perf(&self) -> Response<llama_perf_context_data>;
+}
 
-    /// Get the next available sequence.
-    ///
-    /// Automatically assigns the first unchecked sequence id.
-    /// Returns `None` if all sequences are checked out.
-    pub fn sequence(&self) -> Option<Sequence<'_, 'a>> {
-        for (i, slot) in self.checked_out.iter().enumerate() {
-            if !slot.get() {
-                slot.set(true);
-                return Some(Sequence::new(self, i as llama_seq_id));
-            }
-        }
-        None
-    }
+// -- The Actor --
 
-    // get the number of slots available to claim through `sequence()`
-    pub fn free_slots(&self) -> usize {
-        self.checked_out.iter().filter(|slot| !slot.get()).count()
-    }
+pub(crate) struct ContextActor {
+    ctx: *mut llama_context,
+    batch: Batch,
+    n_vocab: i32,
+    checked_out: Vec<bool>,
+}
 
-    /// get a reference back to the model this context is tied to
-    pub fn model(&self) -> &'a Model {
-        self.model
-    }
+unsafe impl Send for ContextActor {}
 
-    pub fn params(&self) -> &'a ContextParams {
-        self.params
-    }
-
-    pub fn as_ptr(&self) -> *const llama_context {
-        self.ctx
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut llama_context {
-        self.ctx
-    }
-
-    pub fn get_memory(&self) -> llama_memory_t {
+impl ContextActor {
+    fn get_memory(&self) -> llama_memory_t {
         unsafe { llama_get_memory(self.ctx) }
     }
 
-    /// Process a batch of tokens.
-    /// In contrast to llama_decode() - this call does not use KV cache.
-    /// For encode-decoder contexts, processes the batch using the encoder.
-    /// Can store the encoder output internally for later use by the decoder's cross-attention layers.
-    /// 0 - success
-    /// < 0 - error. the memory state is restored to the state before this call
-    pub fn encode(&self, batch: llama_sys::llama_batch) -> i32 {
-        unsafe { llama_encode(self.ctx, batch) }
-    }
-
-    /// Process a batch of tokens. Requires the context to have a memory.
-    /// For encode-decoder contexts, processes the batch using the decoder.
-    ///
-    /// Positive return values do not mean a fatal error, but rather a warning.
-    /// Upon fatal-error or abort, the ubatches that managed to be processed will remain
-    /// in the memory state of the context. To handle this correctly, query the memory
-    /// state using llama_memory_seq_pos_min() and llama_memory_seq_pos_max().
-    /// Upon other return values, the memory state is restored to the state before this call.
-    ///
-    /// Return codes:
-    /// - 0 - success
-    /// - 1 - could not find a KV slot for the batch (try reducing the size of the batch or increase the context)
-    /// - 2 - aborted (processed ubatches will remain in the context's memory)
-    /// - -1 - invalid input batch
-    /// - < -1 - fatal error (processed ubatches will remain in the context's memory)
-    pub fn decode(&self, batch: llama_sys::llama_batch) -> Result<(), ContextDecodeResult> {
-        let result = unsafe { llama_decode(self.ctx, batch) };
+    fn decode_batch(&mut self) -> Result<(), DecodeError> {
+        let result = unsafe { llama_decode(self.ctx, *self.batch) };
         match result {
             0 => Ok(()),
-            1 => Err(ContextDecodeResult::SlotNotFound),
-            2 => Err(ContextDecodeResult::Aborted),
-            -1 => Err(ContextDecodeResult::InvalidInput),
-            _ => Err(ContextDecodeResult::FatalError),
+            1 => Err(DecodeError::SlotNotFound),
+            2 => Err(DecodeError::Aborted),
+            -1 => Err(DecodeError::InvalidInput),
+            _ => Err(DecodeError::FatalError),
         }
     }
 
-    /// Get the logits for the `idx`-th output of the last evaluation.
-    ///
-    /// Returns `None` if no logits are available for that index — this happens
-    /// when `idx` is out of range or logits were not requested for that
-    /// position in the batch. The underlying llama.cpp API signals these cases
-    /// by returning a null pointer, so checking for null here is required to
-    /// avoid undefined behavior from constructing a slice over a null pointer.
-    ///
-    /// The logits are copied into an owned `Vec` rather than handed back as a
-    /// borrowed slice. The buffer behind `llama_get_logits_ith` is owned by the
-    /// `llama_context` and is overwritten in place by `encode`/`decode`. Those
-    /// methods only take `&self` (so several `Sequence`s can share one
-    /// `Context`), which means a borrowed `&[f32]` tied to `&self` could be
-    /// mutated through the FFI while still live — a data race / aliasing
-    /// violation, i.e. undefined behavior reachable from safe code. Returning
-    /// an owned copy severs that alias and keeps this a sound safe API.
-    ///
-    /// The length is derived from the model's vocabulary size, which is the
-    /// layout llama.cpp uses for the logits buffer.
-    pub fn get_logits_ith(&self, idx: i32) -> Option<Vec<f32>> {
+    fn get_logits_ith(&self, idx: i32) -> Option<Vec<f32>> {
         let ptr = unsafe { llama_get_logits_ith(self.ctx, idx) };
         if ptr.is_null() {
             return None;
         }
-        let n_vocab = self.model.n_tokens();
-        if n_vocab <= 0 {
+        if self.n_vocab <= 0 {
             return None;
         }
-        Some(unsafe { std::slice::from_raw_parts(ptr, n_vocab as usize) }.to_vec())
+        Some(unsafe { std::slice::from_raw_parts(ptr, self.n_vocab as usize) }.to_vec())
     }
+}
 
-    /// Sample and accept a token from the idx-th output of the last evaluation
-    pub fn sample<S: LlamaSampler>(&mut self, sampler: &S, idx: i32) -> i32 {
-        unsafe { llama_sampler_sample(sampler.as_ptr(), self.ctx, idx) }
+impl Actor for ContextActor {}
+
+impl Drop for ContextActor {
+    fn drop(&mut self) {
+        unsafe { llama_free(self.ctx) };
     }
+}
 
-    pub fn perf(&self) -> llama_perf_context_data {
-        unsafe { llama_perf_context(self.ctx) }
+// -- Handlers: one per protocol method --
+
+use context_protocol::*;
+
+impl Handler<CheckoutSeq> for ContextActor {
+    fn handle(&mut self, _msg: CheckoutSeq, _ctx: &ActorContext<Self>) -> Option<llama_seq_id> {
+        for (i, slot) in self.checked_out.iter_mut().enumerate() {
+            if !*slot {
+                *slot = true;
+                return Some(i as llama_seq_id);
+            }
+        }
+        None
     }
+}
 
-    pub fn n_ctx(&self) -> u32 {
+impl Handler<ReleaseSeq> for ContextActor {
+    fn handle(&mut self, msg: ReleaseSeq, _ctx: &ActorContext<Self>) {
+        unsafe { llama_memory_seq_rm(self.get_memory(), msg.seq_id, -1, -1) };
+        if let Some(slot) = self.checked_out.get_mut(msg.seq_id as usize) {
+            *slot = false;
+        }
+    }
+}
+
+impl Handler<PushToken> for ContextActor {
+    fn handle(
+        &mut self,
+        msg: PushToken,
+        _ctx: &ActorContext<Self>,
+    ) -> Result<Vec<f32>, DecodeError> {
+        common::batch_clear(&mut self.batch);
+        common::batch_add(&mut self.batch, msg.token, msg.pos, &[msg.seq_id], true)
+            .map_err(|_| DecodeError::InvalidInput)?;
+        self.decode_batch()?;
+        self.get_logits_ith(0).ok_or(DecodeError::FatalError)
+    }
+}
+
+impl Handler<SampleToken> for ContextActor {
+    fn handle(&mut self, msg: SampleToken, _ctx: &ActorContext<Self>) -> llama_token {
+        unsafe { llama_sampler_sample(msg.sampler.0, self.ctx, -1) }
+    }
+}
+
+impl Handler<MemorySeqRm> for ContextActor {
+    fn handle(&mut self, msg: MemorySeqRm, _ctx: &ActorContext<Self>) -> bool {
+        unsafe { llama_memory_seq_rm(self.get_memory(), msg.seq_id, msg.p0, msg.p1) }
+    }
+}
+
+impl Handler<MemorySeqCp> for ContextActor {
+    fn handle(&mut self, msg: MemorySeqCp, _ctx: &ActorContext<Self>) {
+        unsafe { llama_memory_seq_cp(self.get_memory(), msg.src, msg.dst, msg.p0, msg.p1) }
+    }
+}
+
+impl Handler<MemorySeqAdd> for ContextActor {
+    fn handle(&mut self, msg: MemorySeqAdd, _ctx: &ActorContext<Self>) {
+        unsafe {
+            llama_memory_seq_add(self.get_memory(), msg.seq_id, msg.p0, msg.p1, msg.delta)
+        }
+    }
+}
+
+impl Handler<MemorySeqPosMin> for ContextActor {
+    fn handle(&mut self, msg: MemorySeqPosMin, _ctx: &ActorContext<Self>) -> llama_pos {
+        unsafe { llama_memory_seq_pos_min(self.get_memory(), msg.seq_id) }
+    }
+}
+
+impl Handler<MemorySeqPosMax> for ContextActor {
+    fn handle(&mut self, msg: MemorySeqPosMax, _ctx: &ActorContext<Self>) -> llama_pos {
+        unsafe { llama_memory_seq_pos_max(self.get_memory(), msg.seq_id) }
+    }
+}
+
+impl Handler<GetNCtx> for ContextActor {
+    fn handle(&mut self, _msg: GetNCtx, _ctx: &ActorContext<Self>) -> u32 {
         unsafe { llama_n_ctx(self.ctx) }
     }
+}
 
-    pub fn can_shift(&self) -> bool {
+impl Handler<CanShift> for ContextActor {
+    fn handle(&mut self, _msg: CanShift, _ctx: &ActorContext<Self>) -> bool {
         unsafe { llama_memory_can_shift(self.get_memory()) }
     }
 }
 
-impl<'a> Drop for Context<'a> {
+impl Handler<FreeSlots> for ContextActor {
+    fn handle(&mut self, _msg: FreeSlots, _ctx: &ActorContext<Self>) -> usize {
+        self.checked_out.iter().filter(|&&s| !s).count()
+    }
+}
+
+impl Handler<GetPerf> for ContextActor {
+    fn handle(&mut self, _msg: GetPerf, _ctx: &ActorContext<Self>) -> llama_perf_context_data {
+        unsafe { llama_perf_context(self.ctx) }
+    }
+}
+
+// -- Public handle --
+
+struct ContextInner {
+    actor: ActorRef<ContextActor>,
+}
+
+impl Drop for ContextInner {
     fn drop(&mut self) {
-        unsafe { llama_free(self.ctx) };
+        self.actor.context().stop();
+        let _ = self.actor.send(FreeSlots);
+        self.actor.join();
+    }
+}
+
+/// Handle to a running context actor. Clone + Send + Sync.
+///
+/// The actor thread is stopped when the last clone is dropped.
+#[derive(Clone)]
+pub struct Context {
+    inner: Arc<ContextInner>,
+}
+
+impl Context {
+    pub(crate) fn actor(&self) -> &ActorRef<ContextActor> {
+        &self.inner.actor
+    }
+
+    pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
+        if ctx.is_null() {
+            return Err(());
+        }
+        let n_seq_max = params.n_seq_max as usize;
+        let n_vocab = model.n_tokens();
+
+        let actor_inner = ContextActor {
+            ctx,
+            batch: Batch::init_token(1, params.n_seq_max as i32),
+            n_vocab,
+            checked_out: vec![false; n_seq_max],
+        };
+        let actor = actor_inner.start();
+
+        Ok(Self {
+            inner: Arc::new(ContextInner { actor }),
+        })
+    }
+
+    pub fn sequence(&self) -> Option<crate::Sequence> {
+        let seq_id = self.actor().checkout_seq().unwrap();
+        seq_id.map(|id| crate::Sequence::new(self.clone(), id))
+    }
+
+    pub fn free_slots(&self) -> usize {
+        self.actor().free_slots().unwrap()
+    }
+
+    pub fn n_ctx(&self) -> u32 {
+        self.actor().get_n_ctx().unwrap()
+    }
+
+    pub fn can_shift(&self) -> bool {
+        self.actor().can_shift().unwrap()
+    }
+
+    pub fn perf(&self) -> llama_perf_context_data {
+        self.actor().get_perf().unwrap()
+    }
+
+    pub fn sample<S: crate::LlamaSampler>(&self, sampler: &S, _idx: i32) -> llama_token {
+        self.actor()
+            .sample_token(SamplerPtr(sampler.as_ptr()))
+            .unwrap()
     }
 }

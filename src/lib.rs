@@ -6,7 +6,7 @@
 //! It maintains close fidelity to the original API while providing:
 //! - Memory safety through RAII
 //! - Type safety where possible
-//! - Comprehensive documentation
+//! - Thread safety via an actor model (powered by Spawned)
 
 mod model;
 pub use model::*;
@@ -15,7 +15,7 @@ mod backend;
 pub use backend::*;
 
 mod context;
-pub use context::*;
+pub use context::{Context, ContextParams, DecodeError};
 
 mod sampler;
 pub use sampler::*;
@@ -26,10 +26,10 @@ pub use sampler_chain::*;
 mod vocab;
 pub use vocab::*;
 
-pub mod common;
+pub(crate) mod common;
 
 mod batch;
-pub use batch::*;
+pub(crate) use batch::*;
 
 mod sequence;
 pub use sequence::*;

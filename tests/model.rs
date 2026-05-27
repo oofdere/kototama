@@ -3,7 +3,7 @@ mod common;
 #[test]
 fn load_model() {
     let model = common::load_model();
-    assert!(!model.vocab.is_null());
+    assert!(model.n_tokens() > 0);
 }
 
 #[test]
@@ -15,14 +15,9 @@ fn desc_nonempty() {
 
 #[test]
 fn desc_matches_probe_length() {
-    // `llama_model_desc` uses snprintf: the probe with (NULL, 0) returns the
-    // number of bytes required excluding the trailing NUL. The wrapper must
-    // therefore return a string whose length equals that probed value.
-    // Previously the wrapper passed `needed` as buf_size and snprintf chopped
-    // the last byte off, so the returned description was one character short.
     let model = common::load_model();
     let needed = unsafe {
-        llama_sys::llama_model_desc(model.as_ptr(), std::ptr::null_mut(), 0)
+        llama_sys::llama_model_desc(model.as_ptr() as *mut _, std::ptr::null_mut(), 0)
     };
     let desc = model.desc();
     assert_eq!(
@@ -33,8 +28,6 @@ fn desc_matches_probe_length() {
         desc,
         desc.len()
     );
-    // Spot-check: TinyStories-656K's description ends with "Medium", not the
-    // truncated "Mediu" we used to return.
     assert!(
         desc.ends_with("Medium"),
         "expected description to end with \"Medium\", got {:?}",
@@ -50,7 +43,6 @@ fn n_tokens_positive() {
 
 #[test]
 fn has_decoder() {
-    // TinyStories is a decoder-only model
     let model = common::load_model();
     assert!(model.has_decoder());
 }
@@ -83,7 +75,6 @@ fn tokenize_nonempty_text() {
 #[test]
 fn tokenize_empty_text() {
     let model = common::load_model();
-    // With add_special=false, empty text should produce zero tokens
     let tokens = model.tokenize("", false, false);
     assert!(tokens.is_empty());
 }
@@ -112,13 +103,84 @@ fn token_to_piece_bos() {
 #[test]
 fn decoder_start_token_none_for_decoder_only() {
     let model = common::load_model();
-    // Decoder-only models should return None for decoder_start_token
     assert!(model.decoder_start_token().is_none());
 }
 
 #[test]
 fn chat_template_default() {
     let model = common::load_model();
-    // TinyStories may or may not have a chat template; just verify it doesn't crash
     let _ = model.chat_template(None);
+}
+
+// ---------- Clone (Arc-backed Model) ----------
+
+#[test]
+fn model_clone_has_same_n_tokens() {
+    let model = common::load_model();
+    let cloned = model.clone();
+    assert_eq!(
+        model.n_tokens(),
+        cloned.n_tokens(),
+        "cloned model should report the same vocabulary size"
+    );
+}
+
+#[test]
+fn model_clone_can_tokenize() {
+    let model = common::load_model();
+    let cloned = model.clone();
+    let tokens_orig = model.tokenize("hello world", false, false);
+    let tokens_clone = cloned.tokenize("hello world", false, false);
+    assert_eq!(
+        tokens_orig, tokens_clone,
+        "cloned model should produce identical tokenization"
+    );
+}
+
+#[test]
+fn model_clone_desc_matches() {
+    let model = common::load_model();
+    let cloned = model.clone();
+    assert_eq!(
+        model.desc(),
+        cloned.desc(),
+        "cloned model description should match original"
+    );
+}
+
+#[test]
+fn model_clone_vocab_queries_match() {
+    let model = common::load_model();
+    let cloned = model.clone();
+    assert_eq!(model.bos_token(), cloned.bos_token());
+    assert_eq!(model.eos_token(), cloned.eos_token());
+    assert_eq!(model.has_decoder(), cloned.has_decoder());
+    assert_eq!(model.has_encoder(), cloned.has_encoder());
+}
+
+#[test]
+fn model_clone_token_to_piece_matches() {
+    let model = common::load_model();
+    let cloned = model.clone();
+    if let Some(bos) = model.bos_token() {
+        assert_eq!(
+            model.token_to_piece(bos),
+            cloned.token_to_piece(bos),
+            "cloned model token_to_piece should match original"
+        );
+    }
+}
+
+#[test]
+fn model_original_drop_does_not_affect_clone() {
+    // Verify that dropping the original doesn't invalidate the clone (Arc).
+    let cloned = {
+        let model = common::load_model();
+        model.clone()
+        // model drops here
+    };
+    // Clone should still be usable
+    assert!(cloned.n_tokens() > 0);
+    let tokens = cloned.tokenize("test", false, false);
+    assert!(!tokens.is_empty());
 }
