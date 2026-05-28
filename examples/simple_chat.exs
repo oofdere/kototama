@@ -1,11 +1,9 @@
 # Port of examples/simple_chat.rs — interactive chat loop
 #
 # Usage:
-#   mix run examples/simple_chat.exs --model path/to/model.gguf
+#   cd packages/elixir && mix run ../../examples/simple_chat.exs --model path/to/model.gguf
 #
-# NOTE: ModelParams/ContextParams/SamplerChain are not yet exposed through
-# the bindings. This example shows the target API shape using greedy
-# sampling as a stand-in for the sampler chain.
+# Greedy sampling as a stand-in for the sampler chain.
 
 defmodule SimpleChat do
   alias RustyLlama.{Model, Context, Sequence}
@@ -18,16 +16,11 @@ defmodule SimpleChat do
       )
 
     model_path = opts[:model] || raise "missing --model"
-    _context_size = opts[:context] || 2048
-    _ngl = opts[:ngl] || 99
+    context_size = opts[:context] || 2048
+    ngl = opts[:ngl] || 99
 
-    # Initialize the model
-    # TODO: pass ModelParams with n_gpu_layers once params are exposed
-    {:ok, model} = Model.load_from_file(model_path, %{})
-
-    # Initialize the context
-    # TODO: pass ContextParams with n_ctx/n_batch once params are exposed
-    {:ok, ctx} = Context.new(model, %{})
+    {:ok, model} = Model.load_from_file(model_path, ngl)
+    {:ok, ctx} = Context.new(model, context_size)
 
     seq = Context.sequence(ctx)
 
@@ -35,9 +28,15 @@ defmodule SimpleChat do
   end
 
   defp chat_loop(model, seq, messages) do
-    input = IO.gets("") |> String.trim()
+    raw = IO.gets("")
 
-    if input == "" do
+    input =
+      case raw do
+        nil -> nil
+        line -> String.trim(line)
+      end
+
+    if input in [nil, ""] do
       :ok
     else
       messages = messages ++ [{:user, input}]
@@ -62,26 +61,34 @@ defmodule SimpleChat do
   defp generate_response(model, seq, response \\ "") do
     logits = Sequence.logits(seq)
 
-    # Greedy argmax as stand-in for SamplerChain (min_p + temp + dist)
-    {token, _score} =
-      logits
-      |> Enum.with_index()
-      |> Enum.max_by(fn {score, _idx} -> score end)
-      |> then(fn {score, idx} -> {idx, score} end)
-
-    if Model.is_eog(model, token) do
+    if is_nil(logits) or logits == [] do
       {response, seq}
     else
-      piece = Model.token_to_piece(model, token)
-      IO.write(piece)
-      Sequence.push(seq, token)
+      {token, _score} =
+        logits
+        |> Enum.with_index()
+        |> Enum.max_by(fn {score, _idx} -> score end)
+        |> then(fn {score, idx} -> {idx, score} end)
 
-      response = response <> piece
-
-      if String.contains?(piece, "\n") do
+      if Model.is_eog(model, token) do
         {response, seq}
       else
-        generate_response(model, seq, response)
+        piece =
+          case Model.token_to_piece(model, token) do
+            {:ok, p} -> p
+            _ -> ""
+          end
+
+        IO.write(piece)
+        Sequence.push(seq, token)
+
+        response = response <> piece
+
+        if String.contains?(piece, "\n") do
+          {response, seq}
+        else
+          generate_response(model, seq, response)
+        end
       end
     end
   end

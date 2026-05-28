@@ -1,12 +1,9 @@
 # Port of examples/simple.rs — greedy argmax generation
 #
 # Usage:
-#   mix run examples/simple.exs --model path/to/model.gguf --prompt "Hello my name is"
+#   cd packages/elixir && mix run ../../examples/simple.exs --model path/to/model.gguf
 #
-# NOTE: ModelParams/ContextParams are not yet exposed through the bindings
-# (their C struct fields are invisible to alef's syn parser). This example
-# shows the target API shape; params handling will work once rusty_llama
-# exports Rust-native param structs.
+# Defaults: --prompt "Hello my name is" --n_predict 32 --ngl 99
 
 defmodule Simple do
   alias RustyLlama.{Model, Context, Sequence}
@@ -21,13 +18,11 @@ defmodule Simple do
     model_path = opts[:model] || raise "missing --model"
     prompt = opts[:prompt] || "Hello my name is"
     n_predict = opts[:n_predict] || 32
-    _ngl = opts[:ngl] || 99
+    ngl = opts[:ngl] || 99
 
     if n_predict <= 0, do: raise("n_predict must be positive, got #{n_predict}")
 
-    # Initialize the model
-    # TODO: pass ModelParams once params types are exposed
-    {:ok, model} = Model.load_from_file(model_path, %{})
+    {:ok, model} = Model.load_from_file(model_path, ngl)
 
     IO.puts("Model: #{Model.desc(model)}")
 
@@ -35,38 +30,44 @@ defmodule Simple do
       raise "Model has encoder, which is not supported in this example"
     end
 
-    # Tokenize the prompt
     prompt_tokens = Model.tokenize(model, prompt, true, true)
 
-    # Initialize the context
-    # TODO: pass ContextParams once params types are exposed
-    {:ok, ctx} = Context.new(model, %{})
+    {:ok, ctx} = Context.new(model)
 
     seq = Context.sequence(ctx)
 
     Sequence.extend(seq, prompt_tokens)
 
-    # Print the prompt token-by-token
     for token <- prompt_tokens do
-      IO.write(Model.token_to_piece(model, token))
+      case Model.token_to_piece(model, token) do
+        {:ok, piece} -> IO.write(piece)
+        _ -> nil
+      end
     end
 
-    # Main loop — greedy argmax sampling
     Enum.reduce_while(1..n_predict, nil, fn _i, _acc ->
       logits = Sequence.logits(seq)
 
-      {token, _score} =
-        logits
-        |> Enum.with_index()
-        |> Enum.max_by(fn {score, _idx} -> score end)
-        |> then(fn {score, idx} -> {idx, score} end)
-
-      if Model.is_eog(model, token) do
+      if is_nil(logits) or logits == [] do
         {:halt, nil}
       else
-        IO.write(Model.token_to_piece(model, token))
-        Sequence.push(seq, token)
-        {:cont, nil}
+        {token, _score} =
+          logits
+          |> Enum.with_index()
+          |> Enum.max_by(fn {score, _idx} -> score end)
+          |> then(fn {score, idx} -> {idx, score} end)
+
+        if Model.is_eog(model, token) do
+          {:halt, nil}
+        else
+          case Model.token_to_piece(model, token) do
+            {:ok, piece} -> IO.write(piece)
+            _ -> nil
+          end
+
+          Sequence.push(seq, token)
+          {:cont, nil}
+        end
       end
     end)
 

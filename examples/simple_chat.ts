@@ -1,13 +1,12 @@
 // Port of examples/simple_chat.rs — interactive chat loop
 //
 // Usage:
-//   npx ts-node examples/simple_chat.ts --model path/to/model.gguf
+//   node examples/simple_chat.js --model path/to/model.gguf
 //
-// NOTE: ModelParams/ContextParams/SamplerChain are not yet exposed through
-// the bindings. This example shows the target API shape using greedy
-// sampling as a stand-in for the sampler chain.
+// Build the NAPI addon first:
+//   cd packages/node && npm run build
 
-import { Model, Context, type Sequence } from "rusty-llama";
+import { Model, Context, type Sequence } from "../packages/node";
 import * as readline from "node:readline";
 import { parseArgs } from "node:util";
 
@@ -22,13 +21,12 @@ const { values } = parseArgs({
 const modelPath = values.model;
 if (!modelPath) throw new Error("missing --model");
 
-// Initialize the model
-// TODO: pass ModelParams with n_gpu_layers once params are exposed
-const model = Model.loadFromFile(modelPath, "{}");
+const ngl = Number(values.ngl ?? "99");
+const nCtx = Number(values.context ?? "2048");
 
-// Initialize the context
-// TODO: pass ContextParams with n_ctx/n_batch once params are exposed
-const ctx = Context.new(model, "{}");
+const model = Model.loadFromFile(modelPath, ngl);
+
+const ctx = Context.new(model, nCtx, 512);
 
 const seq = ctx.sequence()!;
 
@@ -55,7 +53,6 @@ function generateResponse(): string {
     const logits = seq.logits();
     if (!logits) break;
 
-    // Greedy argmax as stand-in for SamplerChain (min_p + temp + dist)
     let bestToken = 0;
     let bestScore = -Infinity;
     for (let j = 0; j < logits.length; j++) {
@@ -65,13 +62,13 @@ function generateResponse(): string {
       }
     }
 
-    if (model.isEog(bestToken.toString())) break;
+    if (model.isEog(bestToken)) break;
 
     const piece = model.tokenToPiece(bestToken);
     process.stdout.write(piece);
     response += piece;
 
-    seq.push(bestToken.toString());
+    seq.push(bestToken);
 
     if (piece.includes("\n")) break;
   }

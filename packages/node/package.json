@@ -1,0 +1,18 @@
+{
+  "name": "rusty-llama",
+  "version": "0.1.0",
+  "description": "Node.js bindings for rusty-llama (llama.cpp)",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "rusty-llama",
+    "triples": {}
+  },
+  "scripts": {
+    "build": "napi build --release --platform",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
+  }
+}

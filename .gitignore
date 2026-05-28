@@ -25,3 +25,9 @@ Thumbs.db
 .alef/
 node_modules/
 *.node
+
+# Elixir
+_build/
+deps/
+*.ez
+erl_crash.dump

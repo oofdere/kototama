@@ -1,14 +1,12 @@
 // Port of examples/simple.rs — greedy argmax generation
 //
 // Usage:
-//   npx ts-node examples/simple.ts --model path/to/model.gguf --prompt "Hello my name is"
+//   node examples/simple.js --model path/to/model.gguf --prompt "Hello my name is"
 //
-// NOTE: ModelParams/ContextParams are not yet exposed through the bindings
-// (their C struct fields are invisible to alef's syn parser). This example
-// shows the target API shape; params handling will work once rusty_llama
-// exports Rust-native param structs.
+// Build the NAPI addon first:
+//   cd packages/node && npm run build
 
-import { Model, Context, type Sequence } from "rusty-llama";
+import { Model, Context } from "../packages/node";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
@@ -24,13 +22,16 @@ const modelPath = values.model;
 if (!modelPath) throw new Error("missing --model");
 
 const prompt = values.prompt!;
-const nPredict = parseInt(values["n-predict"]!, 10);
+const nPredictRaw = values["n-predict"]!;
+const nPredict = Number(nPredictRaw);
 
-if (nPredict <= 0) throw new Error(`n_predict must be positive, got ${nPredict}`);
+if (!Number.isInteger(nPredict) || nPredict <= 0) {
+  throw new Error(`n_predict must be a positive integer, got "${nPredictRaw}"`);
+}
 
-// Initialize the model
-// TODO: pass ModelParams once params types are exposed
-const model = Model.loadFromFile(modelPath, "{}");
+const ngl = Number(values.ngl ?? "99");
+
+const model = Model.loadFromFile(modelPath, ngl);
 
 console.log(`Model: ${model.desc()}`);
 
@@ -38,23 +39,18 @@ if (model.hasEncoder()) {
   throw new Error("Model has encoder, which is not supported in this example");
 }
 
-// Tokenize the prompt
 const promptTokens = model.tokenize(prompt, true, true);
 
-// Initialize the context
-// TODO: pass ContextParams once params types are exposed
-const ctx = Context.new(model, "{}");
+const ctx = Context.new(model, 2048, 512);
 
 const seq = ctx.sequence()!;
 
 seq.extend(promptTokens);
 
-// Print the prompt token-by-token
 for (const token of promptTokens) {
-  process.stdout.write(model.tokenToPiece(Number(token)));
+  process.stdout.write(model.tokenToPiece(token));
 }
 
-// Main loop — greedy argmax sampling
 for (let i = 0; i < nPredict; i++) {
   const logits = seq.logits();
   if (!logits) break;
@@ -68,10 +64,10 @@ for (let i = 0; i < nPredict; i++) {
     }
   }
 
-  if (model.isEog(bestToken.toString())) break;
+  if (model.isEog(bestToken)) break;
 
   process.stdout.write(model.tokenToPiece(bestToken));
-  seq.push(bestToken.toString());
+  seq.push(bestToken);
 }
 
 console.log();
