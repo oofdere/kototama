@@ -22,3 +22,6 @@ Thumbs.db
 *.so
 *.dylib
 *.dll
+.alef/
+node_modules/
+*.node
