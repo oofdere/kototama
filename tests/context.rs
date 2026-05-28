@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::Context;
+use rusty_llama::{Context, Model, ModelParams};
 
 #[test]
 fn context_new_ok() {
@@ -158,4 +158,48 @@ fn context_from_cloned_model_is_independent() {
     let _seq1 = ctx1.sequence().unwrap();
     assert_eq!(ctx2.free_slots(), params.n_seq_max as usize,
         "second context should have full slots independent of first");
+}
+
+// ---------- Soundness: Context must keep the Model alive ----------
+//
+// `llama_init_from_model` stashes a raw pointer to the model inside the
+// returned `llama_context`. If the `Model`'s last `Arc` is dropped before the
+// `Context`, the model is freed but the context's internal pointer still
+// references it — every subsequent context op is a use-after-free reachable
+// from purely safe Rust. The fix stores a `Model` clone inside the actor so
+// the underlying `llama_model` outlives the `llama_context`.
+
+#[test]
+fn context_keeps_model_alive_when_dropped_first() {
+    // Keep the shared `SHARED_MODEL`/backend pinned via the test cache. We
+    // load a *second*, independent `Model` so that dropping our handle
+    // really would drop the last `Arc` to that `llama_model` if the context
+    // didn't hold one.
+    let _shared = common::load_model();
+
+    let path = common::model_path();
+    let mut model_params = ModelParams::new();
+    model_params.n_gpu_layers = 0;
+    let model = Model::load_from_file(&path, model_params)
+        .expect("failed to load independent model");
+
+    // Capture a valid token before we let go of the model handle.
+    let token = model.bos_token().unwrap_or(0);
+
+    let ctx_params = common::test_ctx_params();
+    let ctx = Context::new(&model, &ctx_params).expect("failed to create context");
+
+    // Drop the last user-visible handle to this `Model`. Pre-fix this is the
+    // last `Arc`, so `ModelInner::drop` runs and `llama_model_free` frees the
+    // model the context still points at.
+    drop(model);
+
+    // Touch the context after dropping the model. With the fix, the context
+    // still holds an `Arc<ModelInner>` keeping the `llama_model` alive, so
+    // these ops are well-defined. Without it, llama.cpp would dereference a
+    // freed model.
+    assert!(ctx.n_ctx() > 0);
+    let mut seq = ctx.sequence().expect("checkout should succeed");
+    seq.push(token);
+    assert_eq!(seq.len(), 1);
 }

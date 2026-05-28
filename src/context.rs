@@ -114,6 +114,12 @@ pub(crate) struct ContextActor {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    // Keeps the underlying `llama_model` alive for as long as `ctx` exists.
+    // `llama_init_from_model` stashes a raw pointer to the model inside the
+    // context; freeing the model first would dangle that pointer and turn
+    // every subsequent context op into UB. Dropped after `ctx` is freed in
+    // `impl Drop`, so the model outlives the context.
+    _model: Model,
 }
 
 unsafe impl Send for ContextActor {}
@@ -295,6 +301,7 @@ impl Context {
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            _model: model.clone(),
         };
         let actor = actor_inner.start();
 
