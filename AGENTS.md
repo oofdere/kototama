@@ -77,4 +77,4 @@ The following directories are **auto-generated** by [alef](https://github.com/kr
 - `docs/reference/` — API reference docs (Elixir, TypeScript, Rust)
 - `.alef/` — cached IR (gitignored)
 
-The only hand-maintained file is `alef.toml` (binding configuration).
+Within this section, `alef.toml` is the only hand-maintained file; everything else is regenerated from it.
