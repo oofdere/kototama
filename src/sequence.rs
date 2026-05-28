@@ -10,13 +10,13 @@ use std::ops::{Index, Range};
 /// `logits()` don't need a second round-trip.
 pub struct Sequence {
     ctx: Context,
-    id: llama_seq_id,
-    tokens: Vec<llama_token>,
+    id: i32,
+    tokens: Vec<i32>,
     logits: Option<Vec<f32>>,
 }
 
 impl Sequence {
-    pub(crate) fn new(ctx: Context, id: llama_seq_id) -> Self {
+    pub(crate) fn new(ctx: Context, id: i32) -> Self {
         Self {
             ctx,
             id,
@@ -33,7 +33,7 @@ impl Sequence {
         self.tokens.is_empty()
     }
 
-    pub fn push(&mut self, token: llama_token) {
+    pub fn push(&mut self, token: i32) {
         let pos = self.tokens.len() as i32;
         self.logits = Some(
             self.ctx
@@ -60,7 +60,7 @@ impl Sequence {
         }
     }
 
-    pub fn pop(&mut self) -> Option<llama_token> {
+    pub fn pop(&mut self) -> Option<i32> {
         let len = self.tokens.len() as i32;
         if len == 0 {
             return None;
@@ -78,13 +78,13 @@ impl Sequence {
         self.tokens.len()
     }
 
-    pub fn extend(&mut self, tokens: &[llama_token]) {
+    pub fn extend(&mut self, tokens: &[i32]) {
         for &token in tokens {
             self.push(token);
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<llama_token> {
+    pub fn get(&self, index: usize) -> Option<i32> {
         self.tokens.get(index).copied()
     }
 
@@ -111,19 +111,19 @@ impl Sequence {
         other.copy_to(self, range);
     }
 
-    pub fn pos_min(&self) -> llama_pos {
+    pub fn pos_min(&self) -> i32 {
         self.ctx.actor().memory_seq_pos_min(self.id).unwrap()
     }
 
-    pub fn pos_max(&self) -> llama_pos {
+    pub fn pos_max(&self) -> i32 {
         self.ctx.actor().memory_seq_pos_max(self.id).unwrap()
     }
 
-    pub fn tokens(&self) -> &[llama_token] {
+    pub fn tokens(&self) -> &[i32] {
         &self.tokens
     }
 
-    pub fn kv_remove(&mut self, range: Range<llama_pos>) -> bool {
+    pub fn kv_remove(&mut self, range: Range<i32>) -> bool {
         let ok = self.ctx
             .actor()
             .memory_seq_rm(self.id, range.start, range.end)
@@ -134,7 +134,7 @@ impl Sequence {
         ok
     }
 
-    pub fn kv_copy(&self, other: &mut Self, range: Range<llama_pos>) {
+    pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) {
         self.ctx
             .actor()
             .memory_seq_cp(self.id, other.id, range.start, range.end)
@@ -142,7 +142,7 @@ impl Sequence {
         other.logits = None;
     }
 
-    pub fn kv_shift(&mut self, range: Range<llama_pos>, delta: llama_pos) {
+    pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) {
         self.ctx
             .actor()
             .memory_seq_add(self.id, range.start, range.end, delta)
@@ -150,7 +150,7 @@ impl Sequence {
         self.logits = None;
     }
 
-    pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> llama_token {
+    pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> i32 {
         self.ctx
             .actor()
             .sample_token(SamplerPtr(sampler.as_ptr()))
@@ -159,7 +159,7 @@ impl Sequence {
 }
 
 impl Index<usize> for Sequence {
-    type Output = llama_token;
+    type Output = i32;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.tokens[index]

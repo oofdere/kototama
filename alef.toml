@@ -30,6 +30,9 @@ types = [
     "Sampler",
     "SamplerChain",
     "LlamaSampler",
+    "Token",
+    "Pos",
+    "SeqId",
 ]
 # Exclude test helpers and internal callback
 functions = [

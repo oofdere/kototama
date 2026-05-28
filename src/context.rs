@@ -324,7 +324,7 @@ impl Context {
         self.actor().get_perf().unwrap()
     }
 
-    pub fn sample<S: crate::LlamaSampler>(&self, sampler: &S, _idx: i32) -> llama_token {
+    pub fn sample<S: crate::LlamaSampler>(&self, sampler: &S, _idx: i32) -> i32 {
         self.actor()
             .sample_token(SamplerPtr(sampler.as_ptr()))
             .unwrap()

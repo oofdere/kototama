@@ -34,11 +34,11 @@ pub(crate) use batch::*;
 mod sequence;
 pub use sequence::*;
 
-/// Type alias for llama.cpp token IDs (`i32`).
-pub type Token = llama_sys::llama_token;
-/// Type alias for llama.cpp position indices (`i32`).
-pub type Pos = llama_sys::llama_pos;
-/// Type alias for llama.cpp sequence IDs (`i32`).
-pub type SeqId = llama_sys::llama_seq_id;
+/// Type alias for llama.cpp token IDs.
+pub type Token = i32;
+/// Type alias for llama.cpp position indices.
+pub type Pos = i32;
+/// Type alias for llama.cpp sequence IDs.
+pub type SeqId = i32;
 
 pub mod test_common;

@@ -5,7 +5,7 @@ use std::ffi::CStr;
 macro_rules! token_option {
     ($name:ident, $ffi_fn:ident) => {
         #[inline]
-        pub fn $name(&self) -> Option<llama_token> {
+        pub fn $name(&self) -> Option<i32> {
             let token = unsafe { $ffi_fn(self.vocab_ptr()) };
             if token == LLAMA_TOKEN_NULL {
                 None
@@ -44,17 +44,17 @@ impl Model {
     }
 
     #[inline]
-    pub fn get_attr(&self, token: llama_token) -> llama_token_attr {
+    pub fn get_attr(&self, token: i32) -> llama_token_attr {
         unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
     }
 
     #[inline]
-    pub fn get_score(&self, token: llama_token) -> f32 {
+    pub fn get_score(&self, token: i32) -> f32 {
         unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
     }
 
     #[inline]
-    pub fn get_text(&self, token: llama_token) -> &CStr {
+    pub fn get_text(&self, token: i32) -> &CStr {
         unsafe {
             let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
             CStr::from_ptr(ptr)
@@ -62,12 +62,12 @@ impl Model {
     }
 
     #[inline]
-    pub fn is_control(&self, token: llama_token) -> bool {
+    pub fn is_control(&self, token: i32) -> bool {
         unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
     }
 
     #[inline]
-    pub fn is_eog(&self, token: llama_token) -> bool {
+    pub fn is_eog(&self, token: i32) -> bool {
         unsafe { llama_vocab_is_eog(self.vocab_ptr(), token) }
     }
 
