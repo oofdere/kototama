@@ -22,7 +22,11 @@ defmodule SimpleChat do
     {:ok, model} = Model.load_from_file(model_path, ngl)
     {:ok, ctx} = Context.new(model, context_size)
 
-    seq = Context.sequence(ctx)
+    seq =
+      case Context.sequence(ctx) do
+        nil -> raise "failed to allocate initial sequence"
+        s -> s
+      end
 
     chat_loop(model, seq, [])
   end

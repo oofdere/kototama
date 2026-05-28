@@ -34,7 +34,11 @@ defmodule Simple do
 
     {:ok, ctx} = Context.new(model)
 
-    seq = Context.sequence(ctx)
+    seq =
+      case Context.sequence(ctx) do
+        nil -> raise "failed to acquire sequence from context"
+        s -> s
+      end
 
     Sequence.extend(seq, prompt_tokens)
 

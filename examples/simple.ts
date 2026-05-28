@@ -29,7 +29,11 @@ if (!Number.isInteger(nPredict) || nPredict <= 0) {
   throw new Error(`n_predict must be a positive integer, got "${nPredictRaw}"`);
 }
 
-const ngl = Number(values.ngl ?? "99");
+const nglRaw = values.ngl ?? "99";
+const ngl = Number(nglRaw);
+if (!Number.isInteger(ngl)) {
+  throw new Error(`ngl must be an integer, got "${nglRaw}"`);
+}
 
 const model = Model.loadFromFile(modelPath, ngl);
 

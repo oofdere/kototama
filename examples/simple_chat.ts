@@ -23,6 +23,12 @@ if (!modelPath) throw new Error("missing --model");
 
 const ngl = Number(values.ngl ?? "99");
 const nCtx = Number(values.context ?? "2048");
+if (!Number.isInteger(ngl) || ngl < 0) {
+  throw new Error("--ngl must be a non-negative integer");
+}
+if (!Number.isInteger(nCtx) || nCtx <= 0) {
+  throw new Error("--context must be a positive integer");
+}
 
 const model = Model.loadFromFile(modelPath, ngl);
 
