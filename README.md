@@ -1,6 +1,8 @@
-# Rusty Llama.cpp Binding
+# kototama: polylot llama.cpp bindings
 
 upstream version: b9246
+
+supported languages: rust, elixir, typescript
 
 api stability: no. not yet.
 
