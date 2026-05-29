@@ -1,6 +1,6 @@
 // Hand-maintained Rustler NIFs for rusty-llama.
 // Each NIF mirrors a core method; the name is `<type>_<method>` so the
-// binding-coverage checker (scripts/check_binding_coverage.py) can verify
+// binding-coverage checker (scripts/check-binding-coverage.ts) can verify
 // these stay in sync with the core API. `Sequence` is held behind a Mutex
 // because its mutating methods take `&mut self`.
 #![allow(dead_code, unused_imports, unused_variables)]

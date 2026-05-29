@@ -87,8 +87,8 @@ the same snake_case fn name with a camelCase `js_name` (Node). When you add,
 rename, or remove a public method on `Model`/`Context`/`Sequence`, update both
 bindings to match.
 
-`scripts/check_binding_coverage.py` enforces this — it diffs the core API
+`scripts/check-binding-coverage.ts` enforces this — it diffs the core API
 against the bound symbols and fails CI on untracked drift. Methods that are
 intentionally unbound (raw pointers, generics, the sampler API) live in
-`scripts/binding-coverage.toml` under `[ignore]`; tracked backlog items go
-under `[todo]`. See `scripts/README.md`.
+`scripts/binding-coverage.json` under `ignore`; tracked backlog items go under
+`todo`. The checker runs in both Node and Deno. See `scripts/README.md`.

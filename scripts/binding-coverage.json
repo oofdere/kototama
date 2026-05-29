@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Binding coverage configuration. Source of truth: public methods on the core",
+    "rusty-llama handle types (Model, Context, Sequence). The checker compares them",
+    "against the symbols actually exposed by the Elixir (Rustler) and Node (NAPI-RS)",
+    "bindings.",
+    "",
+    "Two buckets let CI stay green while still catching drift:",
+    "  ignore - intentionally never bound (raw pointers, generics, raw C enums).",
+    "           These are excluded from the core surface entirely.",
+    "  todo   - known-missing bindings we intend to add. Reported as a warning,",
+    "           but do NOT fail CI. Move an entry out once it's bound.",
+    "",
+    "The check FAILS only on a method that is in core, not ignored, not in todo, and",
+    "not bound in a given language (new, untracked drift), or on a stale binding",
+    "symbol that no longer exists in core."
+  ],
+
+  "ignore": {
+    "Model::as_ptr": "raw *const llama_model accessor, internal",
+    "Model::get_attr": "returns raw llama_token_attr C enum",
+    "Model::vocab_type": "returns raw llama_vocab_type C enum",
+    "Context::perf": "returns raw llama_perf_context_data struct",
+    "Context::sample": "generic over LlamaSampler; sampler API is not bound",
+    "Sequence::sample": "generic over LlamaSampler; sampler API is not bound"
+  },
+
+  "todo": {}
+}

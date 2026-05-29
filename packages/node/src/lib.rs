@@ -1,7 +1,7 @@
 // Hand-maintained NAPI-RS bindings for rusty-llama.
 // Keep the Rust fn names identical to the core API (snake_case); the JS-facing
 // camelCase names are set via `js_name`. The binding-coverage checker
-// (scripts/check_binding_coverage.py) verifies these stay in sync with core.
+// (scripts/check-binding-coverage.ts) verifies these stay in sync with core.
 #![allow(dead_code, unused_imports, unused_variables)]
 #![allow(unsafe_code)]
 #![allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow)]
