@@ -1,0 +1,47 @@
+# Binding coverage configuration.
+#
+# Source of truth: public methods on the core `rusty-llama` handle types
+# (Model, Context, Sequence). The checker compares them against the symbols
+# actually exposed by the Elixir (Rustler) and Node (NAPI-RS) bindings.
+#
+# Two buckets let CI stay green while still catching drift:
+#   [ignore] - intentionally never bound (raw pointers, generics, raw C enums).
+#              These are excluded from the core surface entirely.
+#   [todo]   - known-missing bindings we intend to add. Reported as a warning,
+#              but do NOT fail CI. Move an entry out of here once it's bound.
+#
+# The check FAILS only on a method that is in core, not ignored, not in todo,
+# and not bound in a given language -> i.e. brand-new, untracked drift.
+# It also fails on "stale" binding symbols that no longer exist in core.
+
+[ignore]
+# Method = "reason it is intentionally not exposed to bindings"
+"Model::as_ptr"        = "raw *const llama_model accessor, internal"
+"Model::get_attr"      = "returns raw llama_token_attr C enum"
+"Model::vocab_type"    = "returns raw llama_vocab_type C enum"
+"Context::perf"        = "returns raw llama_perf_context_data struct"
+"Context::sample"      = "generic over LlamaSampler; sampler API is not bound"
+"Sequence::sample"     = "generic over LlamaSampler; sampler API is not bound"
+
+[todo]
+# Known-missing bindings (tracked backlog). Reported, but not a hard failure.
+"Sequence::remove"     = "&mut self + Range<usize> arg needs (start, end) adapter"
+"Sequence::copy_to"    = "&mut other + Range<usize> arg needs adapter"
+"Sequence::copy_from"  = "&mut self + Range<usize> arg needs adapter"
+"Sequence::kv_remove"  = "&mut self + Range<i32> arg needs adapter"
+"Sequence::kv_copy"    = "&mut other + Range<i32> arg needs adapter"
+"Sequence::kv_shift"   = "&mut self + Range<i32> arg needs adapter"
+"Model::bos_token"     = "macro-generated token getter, not yet bound"
+"Model::cls_token"     = "macro-generated token getter, not yet bound"
+"Model::eos_token"     = "macro-generated token getter, not yet bound"
+"Model::eot_token"     = "macro-generated token getter, not yet bound"
+"Model::fim_mid_token" = "macro-generated token getter, not yet bound"
+"Model::fim_pad_token" = "macro-generated token getter, not yet bound"
+"Model::fim_pre_token" = "macro-generated token getter, not yet bound"
+"Model::fim_rep_token" = "macro-generated token getter, not yet bound"
+"Model::fim_sep_token" = "macro-generated token getter, not yet bound"
+"Model::fim_suf_token" = "macro-generated token getter, not yet bound"
+"Model::mask_token"    = "macro-generated token getter, not yet bound"
+"Model::nl_token"      = "macro-generated token getter, not yet bound"
+"Model::pad_token"     = "macro-generated token getter, not yet bound"
+"Model::sep_token"     = "macro-generated token getter, not yet bound"
