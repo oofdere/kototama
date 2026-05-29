@@ -1,0 +1,1084 @@
+{
+  "schema": "1",
+  "crate": "rusty_llama",
+  "types": [
+    {
+      "name": "Model",
+      "kind": "handle",
+      "mutable": false,
+      "doc": "Thread-safe handle to a loaded model.\n\nCloning is cheap (Arc bump). Use from any thread.",
+      "methods": [
+        {
+          "name": "bos_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "chat_template",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "name",
+              "type": {
+                "k": "option",
+                "of": {
+                  "k": "string"
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "string"
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "cls_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "decoder_start_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "desc",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "string"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "eos_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "eot_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "fim_mid_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "fim_pad_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "fim_pre_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "fim_rep_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "fim_sep_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "fim_suf_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "get_add_bos",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "get_add_eos",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "get_add_sep",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "get_score",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "token",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "float",
+            "rust": "f32",
+            "bits": 32
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "get_text",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "token",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "string"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "has_decoder",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "has_encoder",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "is_control",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "token",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "is_diffusion",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "is_eog",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "token",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "is_hybrid",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "is_recurrent",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "load_from_file",
+          "doc": null,
+          "receiver": "none",
+          "params": [
+            {
+              "name": "path",
+              "type": {
+                "k": "string"
+              }
+            },
+            {
+              "name": "params",
+              "type": {
+                "k": "opaque",
+                "rust": "ModelParams"
+              }
+            }
+          ],
+          "ret": {
+            "k": "result",
+            "ok": {
+              "k": "handle",
+              "type": "Model",
+              "ref": "owned"
+            },
+            "err": {
+              "k": "unit"
+            }
+          },
+          "hints": {},
+          "manual": [
+            "node",
+            "elixir"
+          ]
+        },
+        {
+          "name": "mask_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "n_tokens",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "int",
+            "rust": "i32",
+            "signed": true,
+            "bits": 32
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "nl_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "pad_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "sep_token",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "token_to_piece",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "token",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "result",
+            "ok": {
+              "k": "string"
+            },
+            "err": {
+              "k": "unit"
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "tokenize",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "text",
+              "type": {
+                "k": "string"
+              }
+            },
+            {
+              "name": "add_special",
+              "type": {
+                "k": "bool"
+              }
+            },
+            {
+              "name": "parse_special",
+              "type": {
+                "k": "bool"
+              }
+            }
+          ],
+          "ret": {
+            "k": "vec",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        }
+      ]
+    },
+    {
+      "name": "Context",
+      "kind": "handle",
+      "mutable": false,
+      "doc": "Handle to a running context actor. Clone + Send + Sync.\n\nThe actor thread is stopped when the last clone is dropped.",
+      "methods": [
+        {
+          "name": "can_shift",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "free_slots",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "int",
+            "rust": "usize",
+            "signed": false,
+            "bits": 64
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "n_ctx",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "int",
+            "rust": "u32",
+            "signed": false,
+            "bits": 32
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "new",
+          "doc": null,
+          "receiver": "none",
+          "params": [
+            {
+              "name": "model",
+              "type": {
+                "k": "handle",
+                "type": "Model",
+                "ref": "shared"
+              }
+            },
+            {
+              "name": "params",
+              "type": {
+                "k": "opaque",
+                "rust": "ContextParams"
+              }
+            }
+          ],
+          "ret": {
+            "k": "result",
+            "ok": {
+              "k": "handle",
+              "type": "Context",
+              "ref": "owned"
+            },
+            "err": {
+              "k": "unit"
+            }
+          },
+          "hints": {},
+          "manual": [
+            "node",
+            "elixir"
+          ]
+        },
+        {
+          "name": "sequence",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "handle",
+              "type": "Sequence",
+              "ref": "owned"
+            }
+          },
+          "hints": {},
+          "manual": []
+        }
+      ]
+    },
+    {
+      "name": "Sequence",
+      "kind": "handle",
+      "mutable": true,
+      "doc": "A sequence handle. No lifetime parameters — holds a clone of the Context\nhandle and communicates with the context actor via messages.\n\nLogits from the last `push()` are cached locally, so `sample()` and\n`logits()` don't need a second round-trip.",
+      "methods": [
+        {
+          "name": "copy_from",
+          "doc": null,
+          "receiver": "mut",
+          "params": [
+            {
+              "name": "other",
+              "type": {
+                "k": "handle",
+                "type": "Sequence",
+                "ref": "shared"
+              }
+            },
+            {
+              "name": "range",
+              "type": {
+                "k": "range",
+                "elem": {
+                  "k": "int",
+                  "rust": "usize",
+                  "signed": false,
+                  "bits": 64
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "copy_to",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "other",
+              "type": {
+                "k": "handle",
+                "type": "Sequence",
+                "ref": "mut"
+              }
+            },
+            {
+              "name": "range",
+              "type": {
+                "k": "range",
+                "elem": {
+                  "k": "int",
+                  "rust": "usize",
+                  "signed": false,
+                  "bits": 64
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "decode",
+          "doc": "Re-decode the last token to refresh logits without pushing a new one.\nUseful after `pop()`, `remove()`, or other mutations that invalidate logits.",
+          "receiver": "mut",
+          "params": [],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "extend",
+          "doc": null,
+          "receiver": "mut",
+          "params": [
+            {
+              "name": "tokens",
+              "type": {
+                "k": "vec",
+                "of": {
+                  "k": "int",
+                  "rust": "i32",
+                  "signed": true,
+                  "bits": 32
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "get",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "index",
+              "type": {
+                "k": "int",
+                "rust": "usize",
+                "signed": false,
+                "bits": 64
+              }
+            }
+          ],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "is_empty",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "kv_copy",
+          "doc": null,
+          "receiver": "ref",
+          "params": [
+            {
+              "name": "other",
+              "type": {
+                "k": "handle",
+                "type": "Sequence",
+                "ref": "mut"
+              }
+            },
+            {
+              "name": "range",
+              "type": {
+                "k": "range",
+                "elem": {
+                  "k": "int",
+                  "rust": "i32",
+                  "signed": true,
+                  "bits": 32
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "kv_remove",
+          "doc": null,
+          "receiver": "mut",
+          "params": [
+            {
+              "name": "range",
+              "type": {
+                "k": "range",
+                "elem": {
+                  "k": "int",
+                  "rust": "i32",
+                  "signed": true,
+                  "bits": 32
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "kv_shift",
+          "doc": null,
+          "receiver": "mut",
+          "params": [
+            {
+              "name": "range",
+              "type": {
+                "k": "range",
+                "elem": {
+                  "k": "int",
+                  "rust": "i32",
+                  "signed": true,
+                  "bits": 32
+                }
+              }
+            },
+            {
+              "name": "delta",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "len",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "int",
+            "rust": "usize",
+            "signed": false,
+            "bits": 64
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "logits",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "vec",
+              "of": {
+                "k": "float",
+                "rust": "f32",
+                "bits": 32
+              }
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "pop",
+          "doc": null,
+          "receiver": "mut",
+          "params": [],
+          "ret": {
+            "k": "option",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "pos_max",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "int",
+            "rust": "i32",
+            "signed": true,
+            "bits": 32
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "pos_min",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "int",
+            "rust": "i32",
+            "signed": true,
+            "bits": 32
+          },
+          "hints": {},
+          "manual": []
+        },
+        {
+          "name": "push",
+          "doc": null,
+          "receiver": "mut",
+          "params": [
+            {
+              "name": "token",
+              "type": {
+                "k": "int",
+                "rust": "i32",
+                "signed": true,
+                "bits": 32
+              }
+            }
+          ],
+          "ret": {
+            "k": "unit"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "remove",
+          "doc": null,
+          "receiver": "mut",
+          "params": [
+            {
+              "name": "range",
+              "type": {
+                "k": "range",
+                "elem": {
+                  "k": "int",
+                  "rust": "usize",
+                  "signed": false,
+                  "bits": 64
+                }
+              }
+            }
+          ],
+          "ret": {
+            "k": "bool"
+          },
+          "hints": {
+            "cpuBound": true
+          },
+          "manual": []
+        },
+        {
+          "name": "tokens",
+          "doc": null,
+          "receiver": "ref",
+          "params": [],
+          "ret": {
+            "k": "vec",
+            "of": {
+              "k": "int",
+              "rust": "i32",
+              "signed": true,
+              "bits": 32
+            }
+          },
+          "hints": {},
+          "manual": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "Hints the extractor cannot infer from the API itself, keyed by Type or",
+    "Type::method. The `ignore` list (methods never bound) lives in",
+    "binding-coverage.json so exclusions have a single source of truth.",
+    "",
+    "  types  - is each handle a resource/class, and does it need interior",
+    "           mutability (Mutex) because some methods take &mut self?",
+    "  hints  - per-method runtime hints, e.g. cpuBound -> BEAM DirtyCpu.",
+    "  manual - backend ids that hand-write a method instead of generating it",
+    "           (the escape hatch: param construction, generics, etc.)."
+  ],
+
+  "types": {
+    "Model":    { "kind": "handle", "mutable": false },
+    "Context":  { "kind": "handle", "mutable": false },
+    "Sequence": { "kind": "handle", "mutable": true }
+  },
+
+  "hints": {
+    "Sequence::push":      { "cpuBound": true },
+    "Sequence::decode":    { "cpuBound": true },
+    "Sequence::extend":    { "cpuBound": true },
+    "Sequence::remove":    { "cpuBound": true },
+    "Sequence::kv_remove": { "cpuBound": true },
+    "Sequence::kv_shift":  { "cpuBound": true },
+    "Sequence::copy_to":   { "cpuBound": true },
+    "Sequence::copy_from": { "cpuBound": true },
+    "Sequence::kv_copy":   { "cpuBound": true }
+  },
+
+  "manual": {
+    "Model::load_from_file": ["node", "elixir"],
+    "Context::new":          ["node", "elixir"]
+  }
+}

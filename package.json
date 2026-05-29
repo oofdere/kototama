@@ -1,8 +1,11 @@
 {
+  "type": "module",
   "scripts": {
     "test": "cargo test -- --test-threads=1",
     "bench": "cargo bench",
     "take-snapshots": "INSTA_UPDATE=new cargo test -- --test-threads=1",
-    "example": "cargo run --example"
+    "example": "cargo run --example",
+    "gen:ir": "cargo +nightly rustdoc -p rusty-llama -- --output-format json -Z unstable-options && node scripts/binding/extract.ts",
+    "check:bindings": "node scripts/check-binding-coverage.ts"
   }
 }

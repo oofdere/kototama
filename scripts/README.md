@@ -37,3 +37,36 @@ that no longer exists in core (a stale binding).
 
 1. Add the matching binding in `packages/elixir/...` and `packages/node/...`, or
 2. record it in `binding-coverage.json` under `ignore` or `todo`.
+
+## Binding generator — IR (`binding/`)
+
+Toward generating the bindings (and their docs) from one source, the API is
+extracted into a language-neutral IR that backends consume. The extractor reads
+**rustdoc JSON** — the compiler's own output — so macros are expanded (e.g. the
+`token_option!` token getters become real methods) and types/docs resolved,
+which a text parser can't do.
+
+```sh
+npm run gen:ir
+# = cargo +nightly rustdoc -p rusty-llama -- --output-format json -Z unstable-options
+#   then: node scripts/binding/extract.ts   (Deno: deno run -RW scripts/binding/extract.ts)
+```
+
+This needs the llama.cpp submodule and a nightly toolchain, but **no GPU** — a
+CPU build (`GGML_NATIVE`) is enough:
+
+```sh
+git submodule update --init --depth 1 llama-sys/llama.cpp
+```
+
+Pieces:
+
+- `binding/ir.ts` — the typed-JSON IR schema (the contract backends implement against).
+- `binding/extract.ts` — rustdoc JSON → `binding/api.json`.
+- `binding/api.json` — the committed IR (regenerate with `gen:ir`).
+- `binding-spec.json` — hints rustdoc can't infer: handle kind/mutability,
+  `cpuBound` (BEAM dirty scheduler), and per-backend `manual` escape hatches.
+  Exclusions are read from `binding-coverage.json`'s `ignore` (single source).
+
+Backends (Elixir, Node, future languages) are `api.json → files` and are not
+implemented yet — this is the producer half of the pipeline.
