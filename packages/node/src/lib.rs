@@ -1,7 +1,7 @@
-// Based on alef-generated scaffolding, with manual fixes for:
-// - i32 token types (alef extracted them as String due to bindgen aliases)
-// - Real implementations for load_from_file, context_new, etc.
-// - Correct logits return type (f64[] for JS)
+// Hand-maintained NAPI-RS bindings for rusty-llama.
+// Keep the Rust fn names identical to the core API (snake_case); the JS-facing
+// camelCase names are set via `js_name`. The binding-coverage checker
+// (scripts/check_binding_coverage.py) verifies these stay in sync with core.
 #![allow(dead_code, unused_imports, unused_variables)]
 #![allow(unsafe_code)]
 #![allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow)]
@@ -119,6 +119,76 @@ impl JsModel {
     pub fn n_tokens(&self) -> i32 {
         self.inner.n_tokens()
     }
+
+    #[napi(js_name = "bosToken")]
+    pub fn bos_token(&self) -> Option<i32> {
+        self.inner.bos_token()
+    }
+
+    #[napi(js_name = "clsToken")]
+    pub fn cls_token(&self) -> Option<i32> {
+        self.inner.cls_token()
+    }
+
+    #[napi(js_name = "eosToken")]
+    pub fn eos_token(&self) -> Option<i32> {
+        self.inner.eos_token()
+    }
+
+    #[napi(js_name = "eotToken")]
+    pub fn eot_token(&self) -> Option<i32> {
+        self.inner.eot_token()
+    }
+
+    #[napi(js_name = "fimMidToken")]
+    pub fn fim_mid_token(&self) -> Option<i32> {
+        self.inner.fim_mid_token()
+    }
+
+    #[napi(js_name = "fimPadToken")]
+    pub fn fim_pad_token(&self) -> Option<i32> {
+        self.inner.fim_pad_token()
+    }
+
+    #[napi(js_name = "fimPreToken")]
+    pub fn fim_pre_token(&self) -> Option<i32> {
+        self.inner.fim_pre_token()
+    }
+
+    #[napi(js_name = "fimRepToken")]
+    pub fn fim_rep_token(&self) -> Option<i32> {
+        self.inner.fim_rep_token()
+    }
+
+    #[napi(js_name = "fimSepToken")]
+    pub fn fim_sep_token(&self) -> Option<i32> {
+        self.inner.fim_sep_token()
+    }
+
+    #[napi(js_name = "fimSufToken")]
+    pub fn fim_suf_token(&self) -> Option<i32> {
+        self.inner.fim_suf_token()
+    }
+
+    #[napi(js_name = "maskToken")]
+    pub fn mask_token(&self) -> Option<i32> {
+        self.inner.mask_token()
+    }
+
+    #[napi(js_name = "nlToken")]
+    pub fn nl_token(&self) -> Option<i32> {
+        self.inner.nl_token()
+    }
+
+    #[napi(js_name = "padToken")]
+    pub fn pad_token(&self) -> Option<i32> {
+        self.inner.pad_token()
+    }
+
+    #[napi(js_name = "sepToken")]
+    pub fn sep_token(&self) -> Option<i32> {
+        self.inner.sep_token()
+    }
 }
 
 /// Handle to a running context actor.
@@ -223,6 +293,58 @@ impl JsSequence {
     #[napi]
     pub fn tokens(&self) -> Vec<i32> {
         self.inner.lock().unwrap().tokens().to_vec()
+    }
+
+    /// Remove tokens in `[start, end)`; returns false if the KV removal failed.
+    #[napi]
+    pub fn remove(&self, start: u32, end: u32) -> bool {
+        self.inner.lock().unwrap().remove(start as usize..end as usize)
+    }
+
+    /// Remove KV cache cells in position range `[start, end)`.
+    #[napi(js_name = "kvRemove")]
+    pub fn kv_remove(&self, start: i32, end: i32) -> bool {
+        self.inner.lock().unwrap().kv_remove(start..end)
+    }
+
+    /// Shift KV cache positions in `[start, end)` by `delta`.
+    #[napi(js_name = "kvShift")]
+    pub fn kv_shift(&self, start: i32, end: i32, delta: i32) {
+        self.inner.lock().unwrap().kv_shift(start..end, delta);
+    }
+
+    /// Copy tokens in `[start, end)` from this sequence into `other`.
+    #[napi(js_name = "copyTo")]
+    pub fn copy_to(&self, other: &JsSequence, start: u32, end: u32) {
+        // Guard against locking the same sequence twice (self-copy would deadlock).
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            return;
+        }
+        let this = self.inner.lock().unwrap();
+        let mut that = other.inner.lock().unwrap();
+        this.copy_to(&mut *that, start as usize..end as usize);
+    }
+
+    /// Copy tokens in `[start, end)` from `other` into this sequence.
+    #[napi(js_name = "copyFrom")]
+    pub fn copy_from(&self, other: &JsSequence, start: u32, end: u32) {
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            return;
+        }
+        let mut this = self.inner.lock().unwrap();
+        let that = other.inner.lock().unwrap();
+        this.copy_from(&*that, start as usize..end as usize);
+    }
+
+    /// Copy KV cache cells in position range `[start, end)` into `other`.
+    #[napi(js_name = "kvCopy")]
+    pub fn kv_copy(&self, other: &JsSequence, start: i32, end: i32) {
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            return;
+        }
+        let this = self.inner.lock().unwrap();
+        let mut that = other.inner.lock().unwrap();
+        this.kv_copy(&mut *that, start..end);
     }
 }
 

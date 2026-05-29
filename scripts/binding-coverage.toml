@@ -25,23 +25,6 @@
 
 [todo]
 # Known-missing bindings (tracked backlog). Reported, but not a hard failure.
-"Sequence::remove"     = "&mut self + Range<usize> arg needs (start, end) adapter"
-"Sequence::copy_to"    = "&mut other + Range<usize> arg needs adapter"
-"Sequence::copy_from"  = "&mut self + Range<usize> arg needs adapter"
-"Sequence::kv_remove"  = "&mut self + Range<i32> arg needs adapter"
-"Sequence::kv_copy"    = "&mut other + Range<i32> arg needs adapter"
-"Sequence::kv_shift"   = "&mut self + Range<i32> arg needs adapter"
-"Model::bos_token"     = "macro-generated token getter, not yet bound"
-"Model::cls_token"     = "macro-generated token getter, not yet bound"
-"Model::eos_token"     = "macro-generated token getter, not yet bound"
-"Model::eot_token"     = "macro-generated token getter, not yet bound"
-"Model::fim_mid_token" = "macro-generated token getter, not yet bound"
-"Model::fim_pad_token" = "macro-generated token getter, not yet bound"
-"Model::fim_pre_token" = "macro-generated token getter, not yet bound"
-"Model::fim_rep_token" = "macro-generated token getter, not yet bound"
-"Model::fim_sep_token" = "macro-generated token getter, not yet bound"
-"Model::fim_suf_token" = "macro-generated token getter, not yet bound"
-"Model::mask_token"    = "macro-generated token getter, not yet bound"
-"Model::nl_token"      = "macro-generated token getter, not yet bound"
-"Model::pad_token"     = "macro-generated token getter, not yet bound"
-"Model::sep_token"     = "macro-generated token getter, not yet bound"
+# Empty: the handle API (Model/Context/Sequence) is fully bound. The sampler
+# surface (Sampler, SamplerChain, Context::sample, Sequence::sample) is tracked
+# under [ignore] until it gets a dedicated binding design.

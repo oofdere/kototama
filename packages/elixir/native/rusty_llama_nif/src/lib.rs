@@ -1,7 +1,8 @@
-// Based on alef-generated scaffolding, with manual fixes for:
-// - Mutex<Sequence> (push/extend/pop/decode need &mut self)
-// - i32 token types (alef extracted them as String due to bindgen aliases)
-// - Real implementations for model_load_from_file, context_new, etc.
+// Hand-maintained Rustler NIFs for rusty-llama.
+// Each NIF mirrors a core method; the name is `<type>_<method>` so the
+// binding-coverage checker (scripts/check_binding_coverage.py) can verify
+// these stay in sync with the core API. `Sequence` is held behind a Mutex
+// because its mutating methods take `&mut self`.
 #![allow(dead_code, unused_imports, unused_variables)]
 #![allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow)]
 
@@ -153,6 +154,76 @@ pub fn model_n_tokens(resource: ResourceArc<Model>) -> i32 {
     resource.inner.n_tokens()
 }
 
+#[rustler::nif]
+pub fn model_bos_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.bos_token()
+}
+
+#[rustler::nif]
+pub fn model_cls_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.cls_token()
+}
+
+#[rustler::nif]
+pub fn model_eos_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.eos_token()
+}
+
+#[rustler::nif]
+pub fn model_eot_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.eot_token()
+}
+
+#[rustler::nif]
+pub fn model_fim_mid_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.fim_mid_token()
+}
+
+#[rustler::nif]
+pub fn model_fim_pad_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.fim_pad_token()
+}
+
+#[rustler::nif]
+pub fn model_fim_pre_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.fim_pre_token()
+}
+
+#[rustler::nif]
+pub fn model_fim_rep_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.fim_rep_token()
+}
+
+#[rustler::nif]
+pub fn model_fim_sep_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.fim_sep_token()
+}
+
+#[rustler::nif]
+pub fn model_fim_suf_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.fim_suf_token()
+}
+
+#[rustler::nif]
+pub fn model_mask_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.mask_token()
+}
+
+#[rustler::nif]
+pub fn model_nl_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.nl_token()
+}
+
+#[rustler::nif]
+pub fn model_pad_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.pad_token()
+}
+
+#[rustler::nif]
+pub fn model_sep_token(resource: ResourceArc<Model>) -> Option<i32> {
+    resource.inner.sep_token()
+}
+
 // -- Context --
 
 #[rustler::nif]
@@ -240,6 +311,67 @@ pub fn sequence_pos_max(resource: ResourceArc<Sequence>) -> i32 {
 #[rustler::nif]
 pub fn sequence_tokens(resource: ResourceArc<Sequence>) -> Vec<i32> {
     resource.inner.lock().unwrap().tokens().to_vec()
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sequence_remove(resource: ResourceArc<Sequence>, start: usize, stop: usize) -> bool {
+    resource.inner.lock().unwrap().remove(start..stop)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sequence_kv_remove(resource: ResourceArc<Sequence>, start: i32, stop: i32) -> bool {
+    resource.inner.lock().unwrap().kv_remove(start..stop)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sequence_kv_shift(resource: ResourceArc<Sequence>, start: i32, stop: i32, delta: i32) {
+    resource.inner.lock().unwrap().kv_shift(start..stop, delta);
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sequence_copy_to(
+    resource: ResourceArc<Sequence>,
+    other: ResourceArc<Sequence>,
+    start: usize,
+    stop: usize,
+) {
+    // Guard against locking the same sequence twice (self-copy would deadlock).
+    if std::ptr::eq(&*resource, &*other) {
+        return;
+    }
+    let this = resource.inner.lock().unwrap();
+    let mut that = other.inner.lock().unwrap();
+    this.copy_to(&mut *that, start..stop);
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sequence_copy_from(
+    resource: ResourceArc<Sequence>,
+    other: ResourceArc<Sequence>,
+    start: usize,
+    stop: usize,
+) {
+    if std::ptr::eq(&*resource, &*other) {
+        return;
+    }
+    let mut this = resource.inner.lock().unwrap();
+    let that = other.inner.lock().unwrap();
+    this.copy_from(&*that, start..stop);
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn sequence_kv_copy(
+    resource: ResourceArc<Sequence>,
+    other: ResourceArc<Sequence>,
+    start: i32,
+    stop: i32,
+) {
+    if std::ptr::eq(&*resource, &*other) {
+        return;
+    }
+    let this = resource.inner.lock().unwrap();
+    let mut that = other.inner.lock().unwrap();
+    this.kv_copy(&mut *that, start..stop);
 }
 
 fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {

@@ -22,20 +22,13 @@ Thumbs.db
 *.so
 *.dylib
 *.dll
-.alef/
 node_modules/
 *.node
 
-# Alef-generated files (regenerate with: alef generate && alef docs)
-docs/reference/
-packages/elixir/lib.rs
-packages/elixir/rusty_llama.ex
-packages/elixir/rusty_llama/
-packages/node/lib.rs
+# napi build artifacts
 packages/node/index.js
 packages/node/index.d.ts
 packages/node/dist/
-packages/typescript/
 
 # Elixir
 _build/

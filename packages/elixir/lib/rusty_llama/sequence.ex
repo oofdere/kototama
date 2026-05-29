@@ -12,4 +12,12 @@ defmodule RustyLlama.Sequence do
   def pos_min(seq), do: Native.sequence_pos_min(seq)
   def pos_max(seq), do: Native.sequence_pos_max(seq)
   def tokens(seq), do: Native.sequence_tokens(seq)
+
+  # Range args are the half-open token interval [start, stop).
+  def remove(seq, start, stop), do: Native.sequence_remove(seq, start, stop)
+  def kv_remove(seq, start, stop), do: Native.sequence_kv_remove(seq, start, stop)
+  def kv_shift(seq, start, stop, delta), do: Native.sequence_kv_shift(seq, start, stop, delta)
+  def copy_to(seq, other, start, stop), do: Native.sequence_copy_to(seq, other, start, stop)
+  def copy_from(seq, other, start, stop), do: Native.sequence_copy_from(seq, other, start, stop)
+  def kv_copy(seq, other, start, stop), do: Native.sequence_kv_copy(seq, other, start, stop)
 end
