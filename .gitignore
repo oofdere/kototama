@@ -34,6 +34,7 @@ packages/elixir/rusty_llama/
 packages/node/lib.rs
 packages/node/index.js
 packages/node/index.d.ts
+packages/node/dist/
 packages/typescript/
 
 # Elixir
