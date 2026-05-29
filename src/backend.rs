@@ -1,13 +1,22 @@
 use llama_sys::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
-static BACKEND_HANDLES: AtomicUsize = AtomicUsize::new(0);
+// SAFETY: This counter, plus the global `llama_backend_init`/`llama_backend_free`
+// FFI calls that consume it, must always be observed together. Two threads that
+// both see the same transition (0→1 or 1→0) but order their init/free against
+// each other's observation race on the backend state. We therefore guard the
+// whole acquire/drop sequence — counter update AND FFI call — under a single
+// mutex, rather than relying on a lock-free atomic and a separate FFI call.
+static BACKEND_HANDLES: Mutex<usize> = Mutex::new(0);
 
 pub struct Backend();
 
 impl Backend {
     pub fn acquire() -> Backend {
-        if BACKEND_HANDLES.fetch_add(1, Ordering::SeqCst) == 0 {
+        let mut count = BACKEND_HANDLES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if *count == 0 {
             unsafe {
                 //ggml_log_set(Some(llama_log_callback), std::ptr::null_mut());
                 //llama_log_set(Some(llama_log_callback), std::ptr::null_mut());
@@ -15,13 +24,18 @@ impl Backend {
                 llama_backend_init();
             }
         }
+        *count += 1;
         Backend()
     }
 }
 
 impl Drop for Backend {
     fn drop(&mut self) {
-        if BACKEND_HANDLES.fetch_sub(1, Ordering::SeqCst) == 1 {
+        let mut count = BACKEND_HANDLES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *count -= 1;
+        if *count == 0 {
             println!("Freeing backend");
             unsafe { llama_sys::llama_backend_free() };
         }
