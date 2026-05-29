@@ -68,7 +68,11 @@ function mapType(t: any, selfName: string, isHandle: (n: string) => boolean): Ir
     const inner = t.borrowed_ref.type;
     const h = handleName(inner, selfName, isHandle);
     if (h) return { k: "handle", type: h, ref: t.borrowed_ref.is_mutable ? "mut" : "shared" };
-    return mapType(inner, selfName, isHandle); // &str, &[i32], &CStr: ref is irrelevant
+    // &str / &CStr / &[T]: drop the ref but remember it was borrowed, so backends
+    // know to own it (.to_string_lossy() / .to_vec()).
+    const mapped = mapType(inner, selfName, isHandle);
+    if (mapped.k === "string" || mapped.k === "vec") return { ...mapped, borrowed: true };
+    return mapped;
   }
   if ("generic" in t) {
     if (t.generic === "Self") return { k: "handle", type: selfName, ref: "owned" };
@@ -87,7 +91,9 @@ function mapType(t: any, selfName: string, isHandle: (n: string) => boolean): Ir
       case "Range": return { k: "range", elem: mapType(args[0], selfName, isHandle) };
       case "Result":
         return { k: "result", ok: mapType(args[0], selfName, isHandle), err: mapType(args[1] ?? null, selfName, isHandle) };
-      case "String": case "CString": case "CStr": case "str":
+      case "CString": case "CStr":
+        return { k: "string", repr: "cstr" };
+      case "String": case "str":
         return { k: "string" };
       case "Token": case "Pos": case "SeqId":
         return { k: "int", rust: "i32", signed: true, bits: 32 };

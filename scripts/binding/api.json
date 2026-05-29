@@ -35,7 +35,8 @@
               "type": {
                 "k": "option",
                 "of": {
-                  "k": "string"
+                  "k": "string",
+                  "borrowed": true
                 }
               }
             }
@@ -302,7 +303,9 @@
             }
           ],
           "ret": {
-            "k": "string"
+            "k": "string",
+            "repr": "cstr",
+            "borrowed": true
           },
           "hints": {},
           "manual": []
@@ -412,7 +415,8 @@
             {
               "name": "path",
               "type": {
-                "k": "string"
+                "k": "string",
+                "borrowed": true
               }
             },
             {
@@ -557,7 +561,8 @@
             {
               "name": "text",
               "type": {
-                "k": "string"
+                "k": "string",
+                "borrowed": true
               }
             },
             {
@@ -726,7 +731,10 @@
           "hints": {
             "cpuBound": true
           },
-          "manual": []
+          "manual": [
+            "node",
+            "elixir"
+          ]
         },
         {
           "name": "copy_to",
@@ -760,7 +768,10 @@
           "hints": {
             "cpuBound": true
           },
-          "manual": []
+          "manual": [
+            "node",
+            "elixir"
+          ]
         },
         {
           "name": "decode",
@@ -789,7 +800,8 @@
                   "rust": "i32",
                   "signed": true,
                   "bits": 32
-                }
+                },
+                "borrowed": true
               }
             }
           ],
@@ -871,7 +883,10 @@
           "hints": {
             "cpuBound": true
           },
-          "manual": []
+          "manual": [
+            "node",
+            "elixir"
+          ]
         },
         {
           "name": "kv_remove",
@@ -961,7 +976,8 @@
                 "k": "float",
                 "rust": "f32",
                 "bits": 32
-              }
+              },
+              "borrowed": true
             }
           },
           "hints": {},
@@ -1073,7 +1089,8 @@
               "rust": "i32",
               "signed": true,
               "bits": 32
-            }
+            },
+            "borrowed": true
           },
           "hints": {},
           "manual": []

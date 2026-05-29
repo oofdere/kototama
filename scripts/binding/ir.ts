@@ -16,9 +16,11 @@ export type IrType =
   | { k: "bool" }
   | { k: "int"; rust: string; signed: boolean; bits: number }
   | { k: "float"; rust: string; bits: number }
-  | { k: "string" }
+  /** `borrowed` = came from `&str`/`&CStr` (needs owning); `repr:"cstr"` = `CStr`. */
+  | { k: "string"; borrowed?: boolean; repr?: "cstr" }
   | { k: "option"; of: IrType }
-  | { k: "vec"; of: IrType }
+  /** `borrowed` = came from `&[T]` (needs `.to_vec()`); else an owned `Vec<T>`. */
+  | { k: "vec"; of: IrType; borrowed?: boolean }
   | { k: "range"; elem: IrType }
   | { k: "result"; ok: IrType; err: IrType }
   /** A reference to another handle type (e.g. `&mut Sequence`, owned return). */

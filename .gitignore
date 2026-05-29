@@ -35,3 +35,6 @@ _build/
 deps/
 *.ez
 erl_crash.dump
+
+# binding generator inspection output
+*.rs.gen

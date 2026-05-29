@@ -31,6 +31,9 @@
 
   "manual": {
     "Model::load_from_file": ["node", "elixir"],
-    "Context::new":          ["node", "elixir"]
+    "Context::new":          ["node", "elixir"],
+    "Sequence::copy_to":     ["node", "elixir"],
+    "Sequence::copy_from":   ["node", "elixir"],
+    "Sequence::kv_copy":     ["node", "elixir"]
   }
 }
