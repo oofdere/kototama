@@ -138,7 +138,7 @@ impl Model {
     }
 
     #[inline]
-    pub fn decoder_start_token(&self) -> Option<llama_token> {
+    pub fn decoder_start_token(&self) -> Option<i32> {
         let token = unsafe { llama_model_decoder_start_token(self.inner.model) };
         if token == LLAMA_TOKEN_NULL {
             None
@@ -185,7 +185,7 @@ impl Model {
         Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
     }
 
-    pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<llama_token> {
+    pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
         let len = -unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,

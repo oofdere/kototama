@@ -1,0 +1,51 @@
+[workspace]
+languages = ["elixir", "node"]
+alef_version = "0.20.0"
+
+[[crates]]
+name = "rusty-llama"
+sources = [
+    "src/lib.rs",
+    "src/model.rs",
+    "src/context.rs",
+    "src/sequence.rs",
+    "src/sampler.rs",
+    "src/sampler_chain.rs",
+    "src/vocab.rs",
+    "src/backend.rs",
+    "src/batch.rs",
+]
+version_from = "Cargo.toml"
+core_import = "rusty_llama"
+workspace_root = "."
+
+[crates.exclude]
+# Exclude types that wrap raw C structs, use raw pointers, or are internal
+types = [
+    "ModelParams",
+    "ContextParams",
+    "SamplerChainParams",
+    "Backend",
+    "Batch",
+    "Sampler",
+    "SamplerChain",
+    "LlamaSampler",
+    "Token",
+    "Pos",
+    "SeqId",
+]
+# Exclude test helpers and internal callback
+functions = [
+    "llama_log_callback",
+    "model_path",
+    "load_model",
+    "test_ctx_params",
+    "load_model_and_context",
+]
+
+[crates.elixir]
+module_name = "RustyLlama"
+cpu_bound_functions = ["push", "decode", "extend", "sample", "pop", "remove"]
+
+[crates.node]
+package_name = "rusty-llama"
