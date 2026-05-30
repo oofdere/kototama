@@ -186,29 +186,67 @@ impl Model {
     }
 
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
-        let len = -unsafe {
+        // `text.len() as i32` silently wraps for strings longer than
+        // `i32::MAX` bytes. The C side does `std::string(text, text_len)`,
+        // which converts the wrapped-negative length back to a huge `size_t`
+        // and copies far past the end of the input buffer — undefined
+        // behaviour reachable from purely safe Rust. Reject the call before
+        // crossing the FFI boundary.
+        let text_len = i32::try_from(text.len()).unwrap_or_else(|_| {
+            panic!(
+                "tokenize: text length ({} bytes) exceeds i32::MAX",
+                text.len()
+            )
+        });
+
+        let probe = unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
                 text.as_ptr() as *const i8,
-                text.len() as i32,
+                text_len,
                 std::ptr::null_mut(),
                 0,
                 add_special,
                 parse_special,
             )
         };
+
+        // `llama_tokenize` reserves `i32::MIN` to signal that the
+        // tokenization result would exceed `i32::MAX` tokens. Negating that
+        // in `i32` overflows: debug builds panic on the unary `-`; release
+        // builds wrap back to `i32::MIN`, and `vec![0; i32::MIN as usize]`
+        // then asks the allocator for ~9 EiB and aborts the process.
+        let len = match probe {
+            i32::MIN => panic!(
+                "tokenize: tokenization result would exceed i32::MAX tokens"
+            ),
+            n if n < 0 => -n,
+            // 0 means "nothing to write"; the probe call passes
+            // `n_tokens_max == 0`, so a positive return is outside the
+            // documented API contract — bail safely instead of negating to
+            // a huge `usize` and tripping the allocator.
+            _ => return Vec::new(),
+        };
+
         let mut tokens = vec![0i32; len as usize];
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
                 text.as_ptr() as *const i8,
-                text.len() as i32,
+                text_len,
                 tokens.as_mut_ptr(),
                 tokens.len() as i32,
                 add_special,
                 parse_special,
             )
         };
+        // A negative return from the second call means the C side hit an
+        // error path with our sized buffer. `truncate(negative as usize)`
+        // would cast to a huge value, do nothing, and silently leave the
+        // caller with a vector full of zeros. Drop the buffer instead.
+        if n_tokens < 0 {
+            return Vec::new();
+        }
         tokens.truncate(n_tokens as usize);
         tokens
     }
