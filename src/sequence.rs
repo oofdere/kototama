@@ -89,7 +89,13 @@ impl Sequence {
     }
 
     pub fn remove(&mut self, range: Range<usize>) -> bool {
-        if self.kv_remove(range.start as i32..range.end as i32) {
+        let p0 = range.start as i32;
+        let p1 = range.end as i32;
+        if self.kv_remove(p0..p1) {
+            self.ctx
+                .actor()
+                .memory_seq_add(self.id, p1, -1, -(p1 - p0))
+                .unwrap();
             self.tokens.drain(range);
             self.logits = None;
             true
@@ -99,7 +105,22 @@ impl Sequence {
     }
 
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
+        self.ctx
+            .actor()
+            .memory_seq_rm(other.id, -1, -1)
+            .unwrap();
         self.kv_copy(other, range.start as i32..range.end as i32);
+        if range.start > 0 {
+            self.ctx
+                .actor()
+                .memory_seq_add(
+                    other.id,
+                    range.start as i32,
+                    range.end as i32,
+                    -(range.start as i32),
+                )
+                .unwrap();
+        }
         other.tokens.clear();
         other
             .tokens

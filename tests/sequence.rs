@@ -343,3 +343,75 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&chain);
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+// ---------- remove + push position consistency ----------
+
+#[test]
+fn remove_middle_then_push_has_contiguous_positions() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world today", false, false);
+    seq.extend(&tokens);
+
+    let before = seq.len();
+    seq.remove(1..3);
+    assert_eq!(seq.len(), before - 2);
+
+    // KV positions must be contiguous after removal
+    assert_eq!(seq.pos_min(), 0);
+    assert_eq!(seq.pos_max(), (seq.len() - 1) as i32);
+
+    // Pushing after remove must not collide with stale positions
+    let extra = model.tokenize("!", false, false);
+    seq.push(extra[0]);
+    assert_eq!(seq.pos_max(), (seq.len() - 1) as i32);
+}
+
+#[test]
+fn remove_front_then_push_has_contiguous_positions() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens);
+
+    seq.remove(0..1);
+    assert_eq!(seq.pos_min(), 0);
+    assert_eq!(seq.pos_max(), (seq.len() - 1) as i32);
+
+    let extra = model.tokenize("!", false, false);
+    seq.push(extra[0]);
+    assert_eq!(seq.pos_max(), (seq.len() - 1) as i32);
+}
+
+// ---------- copy_to position rebasing ----------
+
+#[test]
+fn copy_to_from_nonzero_offset_rebases_positions() {
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world today", false, false);
+    src.extend(&tokens);
+
+    // Seed dst so it has existing KV entries
+    let seed = model.tokenize("seed", false, false);
+    dst.extend(&seed);
+
+    // Copy from a nonzero offset
+    src.copy_to(&mut dst, 2..tokens.len());
+    assert_eq!(dst.tokens(), &tokens[2..]);
+
+    // Positions must start from 0 after copy
+    assert_eq!(dst.pos_min(), 0);
+    assert_eq!(dst.pos_max(), (dst.len() - 1) as i32);
+
+    // Pushing must not collide
+    let extra = model.tokenize("!", false, false);
+    dst.push(extra[0]);
+    assert_eq!(dst.pos_max(), (dst.len() - 1) as i32);
+}
