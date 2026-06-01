@@ -343,3 +343,65 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&chain);
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+// ---------- Soundness: `Sequence::push` must reject out-of-vocab tokens ----------
+//
+// The embedding lookup in `llama_decode` indexes the embedding table by token
+// id (`ggml_get_rows` -> `src0 + i01*nb01`). On CPU, the lookup is guarded by
+// `GGML_ASSERT(i01 >= 0 && i01 < ne01)` (see `ggml/src/ggml-cpu/ops.cpp`),
+// which calls `ggml_abort()` and terminates the process — bypassing Rust
+// unwinding and any `Drop` impls. On GPU backends (`ggml/src/ggml-cuda/getrows.cu`)
+// there is no bounds check at all, and the kernel reads `src0 + i01*nb01`
+// out-of-bounds — undefined behavior reachable from purely safe Rust because
+// `Sequence::push` accepts an arbitrary `i32` token id.
+//
+// The fix gates the FFI call on `token in [0, n_vocab)` inside the actor's
+// `PushToken` handler. Out-of-range tokens now surface as
+// `DecodeError::InvalidInput`, which the existing `Sequence::push` unwrap
+// turns into a regular Rust panic — unwinding runs, `Drop` runs, the process
+// stays alive, and the test harness can catch the failure.
+
+#[test]
+#[should_panic(expected = "InvalidInput")]
+fn push_negative_token_panics_instead_of_aborting() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    // Without the bounds check this either aborts the process (CPU
+    // `GGML_ASSERT`) or causes an OOB GPU read (CUDA `getrows.cu`).
+    let _ = model.n_tokens();
+    seq.push(-1);
+}
+
+#[test]
+#[should_panic(expected = "InvalidInput")]
+fn push_token_beyond_vocab_panics_instead_of_aborting() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let n = model.n_tokens();
+    seq.push(n);
+}
+
+#[test]
+#[should_panic(expected = "InvalidInput")]
+fn push_i32_max_token_panics_instead_of_aborting() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    seq.push(i32::MAX);
+}
+
+#[test]
+fn push_valid_token_still_works() {
+    // Regression: the bounds check must not regress the happy path.
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hi", false, false);
+    assert!(!tokens.is_empty());
+    for &t in &tokens {
+        seq.push(t);
+    }
+    assert_eq!(seq.len(), tokens.len());
+}

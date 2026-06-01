@@ -185,6 +185,16 @@ impl Handler<PushToken> for ContextActor {
         msg: PushToken,
         _ctx: &ActorContext<Self>,
     ) -> Result<Vec<f32>, DecodeError> {
+        // Reject out-of-vocab tokens before they reach `llama_decode`.
+        // The embedding lookup (`ggml_get_rows`) uses the token id as an
+        // unchecked offset into the embedding table. On CPU the lookup is
+        // guarded by `GGML_ASSERT(i01 >= 0 && i01 < ne01)` which aborts the
+        // process; on GPU backends (CUDA `getrows.cu`) there is no check
+        // and the kernel reads `src0 + i01*nb01` out-of-bounds — UB
+        // reachable from purely safe Rust via `Sequence::push(any_i32)`.
+        if msg.token < 0 || msg.token >= self.n_vocab {
+            return Err(DecodeError::InvalidInput);
+        }
         common::batch_clear(&mut self.batch);
         common::batch_add(&mut self.batch, msg.token, msg.pos, &[msg.seq_id], true)
             .map_err(|_| DecodeError::InvalidInput)?;
