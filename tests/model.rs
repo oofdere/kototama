@@ -184,3 +184,36 @@ fn model_original_drop_does_not_affect_clone() {
     let tokens = cloned.tokenize("test", false, false);
     assert!(!tokens.is_empty());
 }
+
+// ---------- C-string error paths ----------
+//
+// `Model::load_from_file` and `Model::chat_template` both convert a Rust
+// `&str` into a `CString` before handing it to llama.cpp. An interior NUL
+// byte makes that conversion fail. The two methods react differently —
+// `load_from_file` returns `Err(())`, `chat_template` panics on the
+// `unwrap()` — and both branches were previously unexercised, so a refactor
+// that swapped one for the other would silently change the public contract.
+
+#[test]
+fn load_from_file_path_with_interior_nul_returns_err() {
+    use rusty_llama::{Model, ModelParams};
+    // Path contains an embedded NUL, so CString::new fails before llama.cpp
+    // is ever called — this exercises the `.map_err(|_| ())?` branch in
+    // load_from_file rather than the llama.cpp load-failure branch.
+    let result = Model::load_from_file("foo\0bar.gguf", ModelParams::new());
+    assert!(
+        result.is_err(),
+        "path with interior NUL must be rejected before reaching llama.cpp"
+    );
+}
+
+#[test]
+#[should_panic]
+fn chat_template_panics_on_name_with_interior_nul() {
+    // chat_template unwraps the CString conversion, so a name containing an
+    // interior NUL panics. The behaviour is documented; pin it down here so a
+    // future switch to a Result-returning conversion is a deliberate API change
+    // rather than an accidental one.
+    let model = common::load_model();
+    let _ = model.chat_template(Some("bad\0name"));
+}
