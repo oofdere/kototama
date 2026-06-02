@@ -139,7 +139,19 @@ fn main() {
         .rustified_non_exhaustive_enum("llama_rope_scaling_type")
         .rustified_non_exhaustive_enum("llama_rope_type")
         .rustified_non_exhaustive_enum("llama_split_mode")
-        .rustified_non_exhaustive_enum("llama_token_attr")
+        // `llama_token_attr` is a bitflags enum on the C++ side: the
+        // implementation freely stores values like
+        // `LLAMA_TOKEN_ATTR_NORMAL | LLAMA_TOKEN_ATTR_CONTROL` (== 12) into a
+        // variable of type `llama_token_attr` (see `src/llama-vocab.cpp`, the
+        // `attr = (llama_token_attr)(attr | LLAMA_TOKEN_ATTR_CONTROL)`
+        // assignments). The Rust ABI for `#[repr(u32)] enum` requires that
+        // every observed value match a declared variant — combinations like
+        // 12, 20, 24, ... are not declared variants, so receiving such a
+        // value at the FFI boundary is immediate undefined behavior. This is
+        // reachable from safe Rust via `Model::get_attr(token)`. Generate a
+        // newtype-with-bitwise-ops instead so any `u32` value is a sound
+        // inhabitant of the type.
+        .bitfield_enum("llama_token_attr")
         .rustified_non_exhaustive_enum("llama_token_type")
         .rustified_non_exhaustive_enum("llama_vocab_type")
         .rustified_non_exhaustive_enum("ggml_op_pool")

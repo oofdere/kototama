@@ -86,3 +86,68 @@ fn nl_token_optional() {
     // May or may not be present; just verify no crash
     let _ = model.nl_token();
 }
+
+// ---------- Soundness: get_attr must accept bitflag combinations ----------
+//
+// `llama_token_attr` is a bitflags enum on the C++ side. Look at
+// `src/llama-vocab.cpp` — the vocab init code freely stores combined values
+// like `LLAMA_TOKEN_ATTR_CONTROL | LLAMA_TOKEN_ATTR_USER_DEFINED` (== 24)
+// into a `llama_token_attr` variable. If the Rust binding generates this as a
+// `#[repr(u32)] enum` (bindgen `rustified_non_exhaustive_enum`), every
+// observed value must match a declared variant. Combinations like 12, 20,
+// 24, ... are not declared variants, so receiving such a value at the FFI
+// boundary is immediate undefined behavior — reachable from purely safe Rust
+// via `Model::get_attr(token)`. The build script now uses `bitfield_enum`,
+// which emits a newtype struct (`llama_token_attr(u32)`); any `u32` is a
+// sound inhabitant.
+
+#[test]
+fn get_attr_returns_valid_bitfield_for_every_token() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    // Iterating the whole vocab forces `llama_vocab_get_attr` to return every
+    // attribute value the model uses, including OR'd flag combinations. Pre-
+    // fix, hitting a combined value would be UB at the FFI boundary; with the
+    // newtype binding it is just a `u32`, so the loop completes and every
+    // returned value round-trips through bitwise ops.
+    for t in 0..n {
+        let attr = model.get_attr(t);
+        let bits = attr.0;
+        // Re-decompose with the named flags as a smoke test that the
+        // bitfield ops bindgen generated work as expected.
+        let known_mask = llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNKNOWN.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNUSED.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_NORMAL.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_CONTROL.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_USER_DEFINED.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_BYTE.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_NORMALIZED.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_LSTRIP.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_RSTRIP.0
+            | llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_SINGLE_WORD.0;
+        // Every bit the C side sets should fall inside the documented mask.
+        assert_eq!(
+            bits & !known_mask,
+            0,
+            "token {t}: get_attr returned unknown bits 0x{:x} (full value 0x{:x})",
+            bits & !known_mask,
+            bits
+        );
+    }
+}
+
+#[test]
+fn get_attr_bos_is_a_control_token() {
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        let attr = model.get_attr(bos);
+        // BOS is always a control token in TinyStories; verifying via bitwise
+        // AND demonstrates the newtype's bitfield semantics rather than a
+        // single-variant pattern match (which would be wrong for an OR'd
+        // value like CONTROL | SINGLE_WORD).
+        let is_control = (attr.0
+            & llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_CONTROL.0)
+            != 0;
+        assert!(is_control, "BOS token should have the CONTROL bit set");
+    }
+}
