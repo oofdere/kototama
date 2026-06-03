@@ -58,7 +58,11 @@ impl SamplerChain {
     }
 }
 
-impl LlamaSampler for SamplerChain {
+// SAFETY: `SamplerChain` owns the pointer returned by
+// `llama_sampler_chain_init`, keeps it valid until its `Drop` runs, and
+// `Drop` is the only operation that frees it. The pointer is therefore
+// valid for the lifetime of `&self`.
+unsafe impl LlamaSampler for SamplerChain {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler {
         self.0
     }

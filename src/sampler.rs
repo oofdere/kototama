@@ -170,11 +170,25 @@ impl Drop for Sampler {
     }
 }
 
-pub trait LlamaSampler {
+/// Type-erased handle to a `llama_sampler`.
+///
+/// # Safety
+///
+/// Implementations must return, from [`LlamaSampler::as_ptr`], a non-null
+/// pointer that targets a `llama_sampler` initialized by `llama.cpp` and that
+/// remains valid for the duration of any call into the safe consumer that
+/// borrows `&self` (e.g. [`Sequence::sample`](crate::Sequence::sample),
+/// [`Context::sample`](crate::Context::sample)). The consumer passes the
+/// pointer straight to `llama_sampler_sample`, which dereferences it; a null
+/// or otherwise invalid pointer is undefined behavior reached from safe code.
+pub unsafe trait LlamaSampler {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler;
 }
 
-impl LlamaSampler for Sampler {
+// SAFETY: `Sampler` owns the pointer returned by `llama_sampler_init_*`,
+// keeps it valid until its `Drop` runs, and `Drop` is the only operation
+// that frees it. The pointer is therefore valid for the lifetime of `&self`.
+unsafe impl LlamaSampler for Sampler {
     fn as_ptr(&self) -> *mut llama_sys::llama_sampler {
         self.0
     }

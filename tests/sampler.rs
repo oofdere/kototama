@@ -1,4 +1,4 @@
-use rusty_llama::{Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{LlamaSampler, Sampler, SamplerChain, SamplerChainParams};
 
 // ---------- Sampler constructors ----------
 
@@ -103,4 +103,13 @@ fn sampler_chain_params_deref() {
     let params = SamplerChainParams::new();
     // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
     let _no_perf = params.no_perf;
+}
+
+#[test]
+fn llama_sampler_trait_returns_non_null_ptr() {
+    let sampler = Sampler::greedy();
+    assert!(!<Sampler as LlamaSampler>::as_ptr(&sampler).is_null());
+
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    assert!(!<SamplerChain as LlamaSampler>::as_ptr(&chain).is_null());
 }
