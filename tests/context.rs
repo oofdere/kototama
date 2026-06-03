@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::Context;
+use rusty_llama::{Context, Sampler, SamplerChain, SamplerChainParams};
 
 #[test]
 fn context_new_ok() {
@@ -158,4 +158,69 @@ fn context_from_cloned_model_is_independent() {
     let _seq1 = ctx1.sequence().unwrap();
     assert_eq!(ctx2.free_slots(), params.n_seq_max as usize,
         "second context should have full slots independent of first");
+}
+
+// ---------- Context::sample ----------
+//
+// Context::sample is a public alternative to Sequence::sample. It samples from
+// the most recently decoded logits in the underlying llama_context. A Sequence
+// must first decode at least one token (via push/extend) to populate those
+// logits before sampling can return a meaningful result.
+
+#[test]
+fn context_sample_returns_valid_token() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    seq.extend(&tokens);
+
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let token = ctx.sample(&chain, -1);
+    assert!(
+        token >= 0 && token < model.n_tokens(),
+        "Context::sample should return a token within vocab range, got {token}"
+    );
+}
+
+#[test]
+fn context_sample_greedy_matches_sequence_argmax() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("once upon", false, false);
+    seq.extend(&tokens);
+
+    let argmax = seq
+        .logits()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(i, _)| i as i32)
+        .unwrap();
+
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let sampled = ctx.sample(&chain, -1);
+    assert_eq!(
+        sampled, argmax,
+        "Context::sample with greedy should match the argmax of the last-decoded logits"
+    );
+}
+
+#[test]
+fn context_sample_agrees_with_sequence_sample_for_greedy() {
+    // Greedy sampling is deterministic and stateless, so Context::sample and
+    // Sequence::sample must return the same token when reading the same logits.
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("the cat", false, false);
+    seq.extend(&tokens);
+
+    let chain_a = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let chain_b = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let via_seq = seq.sample(&chain_a);
+    let via_ctx = ctx.sample(&chain_b, -1);
+    assert_eq!(via_seq, via_ctx);
 }
