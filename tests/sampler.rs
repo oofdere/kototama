@@ -104,3 +104,14 @@ fn sampler_chain_params_deref() {
     // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
     let _no_perf = params.no_perf;
 }
+
+#[test]
+fn sampler_chain_into_raw_does_not_double_free() {
+    // Regression: into_raw previously did not call mem::forget, so the Drop
+    // impl would free the pointer and the caller would receive a dangling ptr.
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let raw = chain.into_raw();
+    // The pointer must still be valid here — free it manually.
+    unsafe { llama_sys::llama_sampler_free(raw) };
+}
