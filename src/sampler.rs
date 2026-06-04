@@ -9,11 +9,24 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_adaptive_p(target, decay, seed) })
     }
 
-    pub fn infill(vocab: *const llama_vocab) -> Self {
+    /// # Safety
+    ///
+    /// `vocab` must be a non-null pointer to a `llama_vocab` owned by a
+    /// `Model` that remains alive for the lifetime of the returned `Sampler`
+    /// (including any `SamplerChain` the sampler is later added to). The
+    /// initializer dereferences `vocab` and the sampler retains it for
+    /// later sampling calls.
+    pub unsafe fn infill(vocab: *const llama_vocab) -> Self {
         Self(unsafe { llama_sys::llama_sampler_init_infill(vocab) })
     }
 
-    pub fn logit_bias(
+    /// # Safety
+    ///
+    /// `logit_bias` must either be null (when `n_logit_bias` is 0) or point
+    /// to a contiguous array of at least `n_logit_bias` valid
+    /// `llama_logit_bias` entries. The data is read by llama.cpp during
+    /// initialization, so it must remain valid for the duration of the call.
+    pub unsafe fn logit_bias(
         n_vocab: i32,
         n_logit_bias: i32,
         logit_bias: *const llama_logit_bias,
@@ -45,7 +58,17 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_dist(seed) })
     }
 
-    pub fn dry(
+    /// # Safety
+    ///
+    /// - `vocab` must be a non-null pointer to a `llama_vocab` owned by a
+    ///   `Model` that remains alive for the lifetime of the returned
+    ///   `Sampler` (including any `SamplerChain` the sampler is later added
+    ///   to).
+    /// - `seq_breakers` must either be null (when `num_breakers` is 0) or
+    ///   point to a contiguous array of at least `num_breakers` valid,
+    ///   non-null pointers to NUL-terminated C strings. Each string must
+    ///   remain valid for the duration of the call.
+    pub unsafe fn dry(
         vocab: *const llama_vocab,
         n_ctx_train: i32,
         dry_multiplier: f32,
@@ -69,7 +92,16 @@ impl Sampler {
         })
     }
 
-    pub fn grammar(
+    /// # Safety
+    ///
+    /// - `vocab` must be a non-null pointer to a `llama_vocab` owned by a
+    ///   `Model` that remains alive for the lifetime of the returned
+    ///   `Sampler` (including any `SamplerChain` the sampler is later added
+    ///   to).
+    /// - `grammar_str` and `grammar_root` must each be non-null pointers to
+    ///   NUL-terminated C strings that remain valid for the duration of
+    ///   the call.
+    pub unsafe fn grammar(
         vocab: *const llama_vocab,
         grammar_str: *const ::std::os::raw::c_char,
         grammar_root: *const ::std::os::raw::c_char,
@@ -101,7 +133,22 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_typical(p, min_keep) })
     }
 
-    pub fn grammar_lazy(
+    /// # Safety
+    ///
+    /// - `vocab` must be a non-null pointer to a `llama_vocab` owned by a
+    ///   `Model` that remains alive for the lifetime of the returned
+    ///   `Sampler` (including any `SamplerChain` the sampler is later added
+    ///   to).
+    /// - `grammar_str` and `grammar_root` must each be non-null pointers to
+    ///   NUL-terminated C strings that remain valid for the duration of
+    ///   the call.
+    /// - `trigger_words` must either be null (when `num_trigger_words` is 0)
+    ///   or point to a contiguous array of at least `num_trigger_words`
+    ///   valid, non-null pointers to NUL-terminated C strings.
+    /// - `trigger_tokens` must either be null (when `num_trigger_tokens` is
+    ///   0) or point to a contiguous array of at least `num_trigger_tokens`
+    ///   valid `llama_token` values.
+    pub unsafe fn grammar_lazy(
         vocab: *const llama_vocab,
         grammar_str: *const ::std::os::raw::c_char,
         grammar_root: *const ::std::os::raw::c_char,
@@ -139,7 +186,23 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_top_p(p, min_keep) })
     }
 
-    pub fn grammar_lazy_patterns(
+    /// # Safety
+    ///
+    /// - `vocab` must be a non-null pointer to a `llama_vocab` owned by a
+    ///   `Model` that remains alive for the lifetime of the returned
+    ///   `Sampler` (including any `SamplerChain` the sampler is later added
+    ///   to).
+    /// - `grammar_str` and `grammar_root` must each be non-null pointers to
+    ///   NUL-terminated C strings that remain valid for the duration of
+    ///   the call.
+    /// - `trigger_patterns` must either be null (when `num_trigger_patterns`
+    ///   is 0) or point to a contiguous array of at least
+    ///   `num_trigger_patterns` valid, non-null pointers to NUL-terminated
+    ///   C strings.
+    /// - `trigger_tokens` must either be null (when `num_trigger_tokens` is
+    ///   0) or point to a contiguous array of at least `num_trigger_tokens`
+    ///   valid `llama_token` values.
+    pub unsafe fn grammar_lazy_patterns(
         vocab: *const llama_vocab,
         grammar_str: *const ::std::os::raw::c_char,
         grammar_root: *const ::std::os::raw::c_char,

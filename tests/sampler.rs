@@ -1,4 +1,6 @@
-use rusty_llama::{Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{LlamaSampler, Sampler, SamplerChain, SamplerChainParams};
+
+mod common;
 
 // ---------- Sampler constructors ----------
 
@@ -103,4 +105,33 @@ fn sampler_chain_params_deref() {
     let params = SamplerChainParams::new();
     // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
     let _no_perf = params.no_perf;
+}
+
+// ---------- unsafe-fn constructors taking raw FFI pointers ----------
+//
+// `Sampler::infill`, `logit_bias`, `dry`, `grammar`, `grammar_lazy`, and
+// `grammar_lazy_patterns` accept raw pointers (`*const llama_vocab`,
+// `*const c_char`, …) that `llama.cpp` dereferences during initialization.
+// They are `unsafe fn` so that callers must affirm — in an `unsafe` block —
+// that those pointers are non-null, point at valid data, and outlive the
+// call. If anyone relaxes them back to safe `fn`, this test stops needing
+// the `unsafe` block and the `#![deny(unused_unsafe)]` at the top of the
+// test would catch the regression.
+
+#[deny(unused_unsafe)]
+#[test]
+fn grammar_constructor_is_unsafe_fn() {
+    let model = common::load_model();
+    let vocab = unsafe { llama_sys::llama_model_get_vocab(model.as_ptr()) };
+
+    // A trivially-satisfiable grammar: any single character.
+    let grammar = std::ffi::CString::new("root ::= [a-z]").unwrap();
+    let root = std::ffi::CString::new("root").unwrap();
+
+    // SAFETY: `vocab` belongs to `model`, which stays alive for the body
+    // of this scope; `grammar` and `root` are valid NUL-terminated CStrings
+    // held on the stack across the call.
+    let sampler =
+        unsafe { Sampler::grammar(vocab, grammar.as_ptr(), root.as_ptr()) };
+    assert!(!sampler.as_ptr().is_null());
 }
