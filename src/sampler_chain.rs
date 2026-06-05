@@ -54,6 +54,7 @@ impl SamplerChain {
 
     pub fn into_raw(self) -> *mut llama_sys::llama_sampler {
         let ptr = self.0;
+        std::mem::forget(self);
         ptr
     }
 }
