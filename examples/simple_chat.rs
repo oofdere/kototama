@@ -26,7 +26,7 @@ fn main() {
 
     // initialize the model
     let mut model_params = ModelParams::new();
-    model_params.n_gpu_layers = n_gpu_layers;
+    model_params.set_n_gpu_layers(n_gpu_layers);
 
     let model = Model::load_from_file(&model_path, model_params).expect("Failed to load model");
 

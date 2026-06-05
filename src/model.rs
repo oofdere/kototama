@@ -2,12 +2,12 @@ use crate::Backend;
 use llama_sys::*;
 use std::{
     ffi::c_char,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     ptr::{null, null_mut},
     sync::Arc,
 };
 
-pub struct ModelParams(pub llama_sys::llama_model_params);
+pub struct ModelParams(pub(crate) llama_sys::llama_model_params);
 
 impl ModelParams {
     pub fn new() -> Self {
@@ -18,7 +18,54 @@ impl ModelParams {
         &self.0
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut llama_sys::llama_model_params {
+    /// Number of layers to offload to the GPU (0 disables GPU offload).
+    pub fn n_gpu_layers(&self) -> i32 {
+        self.0.n_gpu_layers
+    }
+
+    pub fn set_n_gpu_layers(&mut self, n: i32) -> &mut Self {
+        self.0.n_gpu_layers = n;
+        self
+    }
+
+    pub fn set_main_gpu(&mut self, gpu: i32) -> &mut Self {
+        self.0.main_gpu = gpu;
+        self
+    }
+
+    pub fn set_vocab_only(&mut self, b: bool) -> &mut Self {
+        self.0.vocab_only = b;
+        self
+    }
+
+    pub fn set_use_mmap(&mut self, b: bool) -> &mut Self {
+        self.0.use_mmap = b;
+        self
+    }
+
+    pub fn set_use_mlock(&mut self, b: bool) -> &mut Self {
+        self.0.use_mlock = b;
+        self
+    }
+
+    pub fn set_check_tensors(&mut self, b: bool) -> &mut Self {
+        self.0.check_tensors = b;
+        self
+    }
+
+    /// Mutable access to the raw FFI struct.
+    ///
+    /// # Safety
+    ///
+    /// `llama_model_params` carries several raw-pointer fields
+    /// (`devices`, `tensor_split`, `tensor_buft_overrides`, `kv_overrides`,
+    /// `progress_callback_user_data`) that are dereferenced by
+    /// `llama_model_load_from_file` on the C++ side. The caller must ensure
+    /// that any pointer they install is either null or points to a valid,
+    /// suitably-typed object that outlives the load call. Storing a bogus
+    /// pointer and then passing the params to `Model::load_from_file`
+    /// triggers undefined behaviour.
+    pub unsafe fn as_mut_raw(&mut self) -> &mut llama_sys::llama_model_params {
         &mut self.0
     }
 }
@@ -31,15 +78,9 @@ impl Deref for ModelParams {
     }
 }
 
-impl DerefMut for ModelParams {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl Into<llama_sys::llama_model_params> for ModelParams {
-    fn into(self) -> llama_sys::llama_model_params {
-        self.0
+impl From<ModelParams> for llama_sys::llama_model_params {
+    fn from(val: ModelParams) -> Self {
+        val.0
     }
 }
 

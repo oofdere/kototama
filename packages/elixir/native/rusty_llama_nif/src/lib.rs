@@ -56,7 +56,7 @@ impl From<rusty_llama::DecodeError> for DecodeError {
 #[rustler::nif]
 pub fn model_load_from_file(path: String, n_gpu_layers: i32) -> Result<ResourceArc<Model>, String> {
     let mut params = rusty_llama::ModelParams::new();
-    params.n_gpu_layers = n_gpu_layers;
+    params.set_n_gpu_layers(n_gpu_layers);
     let model = rusty_llama::Model::load_from_file(&path, params)
         .map_err(|_| "failed to load model".to_string())?;
     Ok(ResourceArc::new(Model { inner: Arc::new(model) }))

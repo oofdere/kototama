@@ -171,6 +171,48 @@ fn model_clone_token_to_piece_matches() {
     }
 }
 
+// ---------- ModelParams setters (soundness: raw FFI fields are sealed) ----------
+
+#[test]
+fn model_params_set_n_gpu_layers_round_trips() {
+    let mut params = rusty_llama::ModelParams::new();
+    params.set_n_gpu_layers(7);
+    assert_eq!(params.n_gpu_layers(), 7);
+    assert_eq!(params.n_gpu_layers, 7);
+}
+
+#[test]
+fn model_params_set_n_gpu_layers_overwrites() {
+    let mut params = rusty_llama::ModelParams::new();
+    params.set_n_gpu_layers(1);
+    params.set_n_gpu_layers(99);
+    assert_eq!(params.n_gpu_layers(), 99);
+}
+
+#[test]
+fn model_params_setters_are_chainable() {
+    let mut params = rusty_llama::ModelParams::new();
+    params
+        .set_n_gpu_layers(3)
+        .set_vocab_only(true)
+        .set_use_mmap(false);
+    assert_eq!(params.n_gpu_layers(), 3);
+    assert!(params.vocab_only);
+    assert!(!params.use_mmap);
+}
+
+#[test]
+fn model_params_loads_via_setter() {
+    // The raw FFI fields used to be assignable from safe Rust via the public
+    // `.0` field and `DerefMut`. Now the only safe path to `n_gpu_layers`
+    // is through the setter, and `Model::load_from_file` keeps working.
+    let mut params = rusty_llama::ModelParams::new();
+    params.set_n_gpu_layers(0);
+    let model = rusty_llama::Model::load_from_file(&common::model_path(), params)
+        .expect("failed to load model");
+    assert!(model.n_tokens() > 0);
+}
+
 #[test]
 fn model_original_drop_does_not_affect_clone() {
     // Verify that dropping the original doesn't invalidate the clone (Arc).

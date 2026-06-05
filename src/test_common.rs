@@ -18,7 +18,7 @@ pub fn load_model() -> Model {
         .get_or_init(|| {
             let path = model_path();
             let mut params = ModelParams::new();
-            params.n_gpu_layers = 0;
+            params.set_n_gpu_layers(0);
             Model::load_from_file(&path, params).expect("failed to load model")
         })
         .clone()
