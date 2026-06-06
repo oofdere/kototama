@@ -2,8 +2,6 @@
 
 upstream version: b9246
 
-supported languages: rust, elixir, typescript
-
 api stability: no. not yet.
 
 this should just build without any special work if you've followed the [upstream build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md) for your specific backend. currently, only the vulkan and metal backends are supported.
