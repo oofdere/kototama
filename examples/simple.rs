@@ -53,15 +53,13 @@ fn main() {
 
     // Initialize the context
     let mut ctx_params = ContextParams::new();
-    {
-        // n_ctx is the context size
-        ctx_params.n_ctx = (n_prompt + n_predict as usize - 1) as u32;
-        // n_batch is the maximum number of tokens that can be processed in a single call to llama_decode
-        // 1 is used here because the implementation currently only supports single-token decoding
-        ctx_params.n_batch = 1; // n_prompt as u32;
-        // enable performance counters
-        ctx_params.no_perf = false;
-    }
+    // n_ctx: the context size
+    // n_batch: max tokens per llama_decode call (1 because we only do single-token decoding)
+    // no_perf=false: enable performance counters
+    ctx_params
+        .set_n_ctx((n_prompt + n_predict as usize - 1) as u32)
+        .set_n_batch(1)
+        .set_no_perf(false);
 
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
 

@@ -32,8 +32,7 @@ fn main() {
 
     // initialize the context
     let mut ctx_params = ContextParams::new();
-    ctx_params.n_ctx = context;
-    ctx_params.n_batch = context;
+    ctx_params.set_n_ctx(context).set_n_batch(context);
 
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
     let mut seq = ctx.sequence().expect("failed to acquire sequence");

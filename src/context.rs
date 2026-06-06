@@ -1,5 +1,5 @@
 use llama_sys::*;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::sync::Arc;
 
 use spawned_concurrency::protocol;
@@ -10,9 +10,22 @@ use crate::{common, Batch, Model};
 
 // -- Params --
 
+/// Safe wrapper around `llama_context_params`.
+///
+/// The inner FFI struct is **not** exposed mutably from safe code because it
+/// contains raw pointer fields (`samplers`, `cb_eval_user_data`,
+/// `abort_callback_data`) that are dereferenced by `llama_init_from_model`
+/// on the C++ side. Letting safe code assign arbitrary integer-cast pointers
+/// to those fields would allow safe Rust to drive the FFI into undefined
+/// behaviour (cf. `llama-cpp/src/llama-context.cpp:91` which dereferences
+/// `params.samplers[i]` whenever `n_samplers > 0`).
+///
+/// Use the typed setters for the primitive fields; for the pointer / callback
+/// fields, drop down to `as_mut_raw` (`unsafe`) and accept responsibility for
+/// keeping the pointed-to data alive and valid.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct ContextParams(llama_context_params);
+pub struct ContextParams(pub(crate) llama_context_params);
 
 impl ContextParams {
     pub fn new() -> Self {
@@ -23,8 +36,80 @@ impl ContextParams {
         &self.0
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut llama_context_params {
+    /// Escape hatch for setting the raw FFI pointer / callback fields
+    /// (`samplers`, `cb_eval`, `cb_eval_user_data`, `abort_callback`,
+    /// `abort_callback_data`).
+    ///
+    /// # Safety
+    ///
+    /// The caller is responsible for ensuring that any pointer they install
+    /// is either null or points to a valid, correctly-typed object that
+    /// outlives the `Context` created from this `ContextParams`. In
+    /// particular, setting `n_samplers > 0` while `samplers` does not point
+    /// to a `n_samplers`-element array of valid `llama_sampler_seq_config`
+    /// is undefined behaviour on the C++ side.
+    pub unsafe fn as_mut_raw(&mut self) -> &mut llama_context_params {
         &mut self.0
+    }
+
+    /// Text context size. `0` means "use the model default".
+    pub fn set_n_ctx(&mut self, n_ctx: u32) -> &mut Self {
+        self.0.n_ctx = n_ctx;
+        self
+    }
+
+    /// Logical maximum batch size submitted to `llama_decode`.
+    pub fn set_n_batch(&mut self, n_batch: u32) -> &mut Self {
+        self.0.n_batch = n_batch;
+        self
+    }
+
+    /// Physical maximum batch size.
+    pub fn set_n_ubatch(&mut self, n_ubatch: u32) -> &mut Self {
+        self.0.n_ubatch = n_ubatch;
+        self
+    }
+
+    /// Maximum number of sequences (distinct KV states).
+    pub fn set_n_seq_max(&mut self, n_seq_max: u32) -> &mut Self {
+        self.0.n_seq_max = n_seq_max;
+        self
+    }
+
+    /// Number of threads used for generation (single token).
+    pub fn set_n_threads(&mut self, n_threads: i32) -> &mut Self {
+        self.0.n_threads = n_threads;
+        self
+    }
+
+    /// Number of threads used for batch processing (multiple tokens).
+    pub fn set_n_threads_batch(&mut self, n_threads_batch: i32) -> &mut Self {
+        self.0.n_threads_batch = n_threads_batch;
+        self
+    }
+
+    /// If true, extract embeddings (together with logits).
+    pub fn set_embeddings(&mut self, embeddings: bool) -> &mut Self {
+        self.0.embeddings = embeddings;
+        self
+    }
+
+    /// Offload the KQV ops (including the KV cache) to GPU.
+    pub fn set_offload_kqv(&mut self, offload_kqv: bool) -> &mut Self {
+        self.0.offload_kqv = offload_kqv;
+        self
+    }
+
+    /// Measure performance timings.
+    pub fn set_no_perf(&mut self, no_perf: bool) -> &mut Self {
+        self.0.no_perf = no_perf;
+        self
+    }
+
+    /// Use a unified buffer across input sequences when computing attention.
+    pub fn set_kv_unified(&mut self, kv_unified: bool) -> &mut Self {
+        self.0.kv_unified = kv_unified;
+        self
     }
 }
 
@@ -33,12 +118,6 @@ impl Deref for ContextParams {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl DerefMut for ContextParams {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

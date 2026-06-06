@@ -120,7 +120,7 @@ fn pos_min_max_after_push() {
 fn copy_to() {
     let (model, _) = setup();
     let mut params = common::test_ctx_params();
-    params.kv_unified = true;
+    params.set_kv_unified(true);
     let ctx = Context::new(&model, &params).unwrap();
     let mut src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();
@@ -174,7 +174,7 @@ fn free_slots_decreases_with_checkout() {
 fn sequence_checkout_up_to_n_seq_max() {
     let (model, _) = setup();
     let mut params = common::test_ctx_params();
-    params.n_seq_max = 3;
+    params.set_n_seq_max(3);
     let ctx = Context::new(&model, &params).unwrap();
     let _seq1 = ctx.sequence().unwrap();
     let _seq2 = ctx.sequence().unwrap();
@@ -199,7 +199,7 @@ fn dropping_sequence_frees_slot() {
 fn copy_from() {
     let (model, _) = setup();
     let mut params = common::test_ctx_params();
-    params.kv_unified = true;
+    params.set_kv_unified(true);
     let ctx = Context::new(&model, &params).unwrap();
     let mut src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();

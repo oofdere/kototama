@@ -9,10 +9,10 @@ fn load_model() -> rusty_llama::Model {
 
 fn make_ctx_params() -> ContextParams {
     let mut p = ContextParams::new();
-    p.n_ctx = 512;
-    p.n_batch = 512;
-    p.n_seq_max = 1;
-    p.no_perf = true;
+    p.set_n_ctx(512)
+        .set_n_batch(512)
+        .set_n_seq_max(1)
+        .set_no_perf(true);
     p
 }
 

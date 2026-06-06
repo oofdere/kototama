@@ -158,8 +158,7 @@ pub fn model_n_tokens(resource: ResourceArc<Model>) -> i32 {
 #[rustler::nif]
 pub fn context_new(model: ResourceArc<Model>, n_ctx: u32, n_batch: u32) -> Result<ResourceArc<Context>, String> {
     let mut params = rusty_llama::ContextParams::new();
-    params.n_ctx = n_ctx;
-    params.n_batch = n_batch;
+    params.set_n_ctx(n_ctx).set_n_batch(n_batch);
     let ctx = rusty_llama::Context::new(&model.inner, &params)
         .map_err(|_| "failed to create context".to_string())?;
     Ok(ResourceArc::new(Context { inner: Arc::new(ctx) }))

@@ -28,10 +28,10 @@ pub fn load_model() -> Model {
 #[allow(dead_code)]
 pub fn test_ctx_params() -> ContextParams {
     let mut p = ContextParams::new();
-    p.n_ctx = 512;
-    p.n_batch = 512;
-    p.n_seq_max = 4;
-    p.no_perf = true;
+    p.set_n_ctx(512)
+        .set_n_batch(512)
+        .set_n_seq_max(4)
+        .set_no_perf(true);
     p
 }
 

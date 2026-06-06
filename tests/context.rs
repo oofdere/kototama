@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::Context;
+use rusty_llama::{Context, ContextParams};
 
 #[test]
 fn context_new_ok() {
@@ -158,4 +158,72 @@ fn context_from_cloned_model_is_independent() {
     let _seq1 = ctx1.sequence().unwrap();
     assert_eq!(ctx2.free_slots(), params.n_seq_max as usize,
         "second context should have full slots independent of first");
+}
+
+// ---------- ContextParams setters ----------
+
+#[test]
+fn context_params_setters_apply_values() {
+    let mut p = ContextParams::new();
+    p.set_n_ctx(1024)
+        .set_n_batch(256)
+        .set_n_ubatch(128)
+        .set_n_seq_max(7)
+        .set_n_threads(2)
+        .set_n_threads_batch(4)
+        .set_embeddings(true)
+        .set_offload_kqv(false)
+        .set_no_perf(true);
+
+    // Read back through Deref to confirm each setter mutated the field.
+    assert_eq!(p.n_ctx, 1024);
+    assert_eq!(p.n_batch, 256);
+    assert_eq!(p.n_ubatch, 128);
+    assert_eq!(p.n_seq_max, 7);
+    assert_eq!(p.n_threads, 2);
+    assert_eq!(p.n_threads_batch, 4);
+    assert!(p.embeddings);
+    assert!(!p.offload_kqv);
+    assert!(p.no_perf);
+}
+
+#[test]
+fn context_params_setters_are_chainable() {
+    let mut p = ContextParams::new();
+    let returned = p.set_n_ctx(99).set_n_batch(99);
+    // The chain returns &mut Self at the end of the chain.
+    assert_eq!(returned.n_ctx, 99);
+    assert_eq!(returned.n_batch, 99);
+}
+
+#[test]
+fn context_params_default_samplers_pointer_is_null() {
+    // Soundness backstop: the C++ side at llama-context.cpp:91 only
+    // dereferences `params.samplers[i]` when `n_samplers > 0`. The default
+    // params must keep `samplers == null` and `n_samplers == 0`, and we no
+    // longer expose a safe way to clobber them.
+    let p = ContextParams::new();
+    assert!(p.samplers.is_null());
+    assert_eq!(p.n_samplers, 0);
+    assert!(p.cb_eval_user_data.is_null());
+    assert!(p.abort_callback_data.is_null());
+}
+
+#[test]
+fn context_params_load_through_safe_setters_round_trips() {
+    // Build params using only safe setters (no DerefMut / no as_mut_raw),
+    // then drive a successful context creation. This exercises the
+    // post-#85-style API end-to-end and proves the safe surface alone is
+    // sufficient for the in-tree call sites.
+    let model = common::load_model();
+    let mut params = ContextParams::new();
+    params
+        .set_n_ctx(512)
+        .set_n_batch(512)
+        .set_n_seq_max(2)
+        .set_no_perf(true);
+
+    let ctx = Context::new(&model, &params).expect("context should build from safe-setter params");
+    assert!(ctx.n_ctx() >= 512);
+    assert_eq!(ctx.free_slots(), 2);
 }
