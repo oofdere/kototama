@@ -113,8 +113,8 @@ fn sampler_chain_into_raw_does_not_double_free() {
     let chain = SamplerChain::new(&SamplerChainParams::new())
         .add(Sampler::greedy());
     let raw = chain.into_raw();
-    // The pointer must still be valid — use it through the LlamaSampler trait
-    // to confirm it hasn't been freed.
+    // The pointer should be non-null and valid for manual cleanup.
+    // If into_raw failed to prevent Drop, the subsequent manual free would double-free.
     assert!(!raw.is_null());
     // Clean up manually since we now own the raw pointer.
     unsafe { llama_sys::llama_sampler_free(raw) };
