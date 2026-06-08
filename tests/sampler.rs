@@ -99,6 +99,17 @@ fn sampler_chain_perf() {
 }
 
 #[test]
+fn sampler_chain_into_raw_does_not_double_free() {
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let ptr = chain.into_raw();
+    // If into_raw failed to inhibit Drop, the pointer is dangling here and the
+    // manual free below is a double-free (UB, caught by ASan/Miri).
+    assert!(!ptr.is_null());
+    unsafe { llama_sys::llama_sampler_free(ptr) };
+}
+
+#[test]
 fn sampler_chain_params_deref() {
     let params = SamplerChainParams::new();
     // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
