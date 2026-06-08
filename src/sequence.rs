@@ -155,6 +155,7 @@ impl Sequence {
             .actor()
             .sample_token(SamplerPtr(sampler.as_ptr()))
             .unwrap()
+            .expect("Sequence::sample called before any decode; push() or decode() first")
     }
 }
 

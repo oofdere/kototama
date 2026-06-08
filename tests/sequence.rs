@@ -327,6 +327,23 @@ fn sequence_sample_with_temperature_in_vocab_range() {
 }
 
 #[test]
+#[should_panic(expected = "before any decode")]
+fn sequence_sample_before_push_panics_instead_of_aborting() {
+    // Calling `sample` on a fresh sequence (no `push`/`decode` yet) used to
+    // reach `llama_sampler_sample`, which calls `GGML_ASSERT(logits != nullptr)`
+    // and aborts the process. The wrapper now intercepts that and panics so
+    // unwinding runs and the test harness can observe the failure.
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let seq = ctx.sequence().unwrap();
+
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+
+    let _ = seq.sample(&chain);
+}
+
+#[test]
 fn sequence_sample_does_not_require_mut() {
     // sample() takes &self — verify it compiles and runs with a shared borrow
     let (model, params) = setup();

@@ -78,7 +78,7 @@ pub(crate) trait ContextProtocol: Send + Sync {
         pos: llama_pos,
         seq_id: llama_seq_id,
     ) -> Response<Result<Vec<f32>, DecodeError>>;
-    fn sample_token(&self, sampler: SamplerPtr) -> Response<llama_token>;
+    fn sample_token(&self, sampler: SamplerPtr) -> Response<Option<llama_token>>;
     fn memory_seq_rm(
         &self,
         seq_id: llama_seq_id,
@@ -114,6 +114,12 @@ pub(crate) struct ContextActor {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    /// `true` once at least one `llama_decode` call has populated the
+    /// context's logits buffer. Gates `SampleToken` so that calling
+    /// `sample()` before any `push()` returns `None` instead of
+    /// reaching `llama_sampler_sample`'s `GGML_ASSERT(logits != nullptr)`,
+    /// which aborts the process.
+    has_decoded: bool,
 }
 
 unsafe impl Send for ContextActor {}
@@ -189,13 +195,18 @@ impl Handler<PushToken> for ContextActor {
         common::batch_add(&mut self.batch, msg.token, msg.pos, &[msg.seq_id], true)
             .map_err(|_| DecodeError::InvalidInput)?;
         self.decode_batch()?;
-        self.get_logits_ith(0).ok_or(DecodeError::FatalError)
+        let logits = self.get_logits_ith(0).ok_or(DecodeError::FatalError)?;
+        self.has_decoded = true;
+        Ok(logits)
     }
 }
 
 impl Handler<SampleToken> for ContextActor {
-    fn handle(&mut self, msg: SampleToken, _ctx: &ActorContext<Self>) -> llama_token {
-        unsafe { llama_sampler_sample(msg.sampler.0, self.ctx, -1) }
+    fn handle(&mut self, msg: SampleToken, _ctx: &ActorContext<Self>) -> Option<llama_token> {
+        if !self.has_decoded {
+            return None;
+        }
+        Some(unsafe { llama_sampler_sample(msg.sampler.0, self.ctx, -1) })
     }
 }
 
@@ -295,6 +306,7 @@ impl Context {
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            has_decoded: false,
         };
         let actor = actor_inner.start();
 
@@ -328,5 +340,6 @@ impl Context {
         self.actor()
             .sample_token(SamplerPtr(sampler.as_ptr()))
             .unwrap()
+            .expect("Context::sample called before any decode; push() at least one token first")
     }
 }
