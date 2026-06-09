@@ -112,6 +112,38 @@ fn chat_template_default() {
     let _ = model.chat_template(None);
 }
 
+#[test]
+fn chat_template_named_lookup_returns_none_for_unknown_name() {
+    // TinyStories doesn't ship any named chat templates, so an arbitrary
+    // name must return None — not crash, and not leak a stray pointer.
+    let model = common::load_model();
+    assert!(
+        model
+            .chat_template(Some("nonexistent_template_xyz"))
+            .is_none(),
+        "unknown template name should return None"
+    );
+}
+
+#[test]
+fn chat_template_default_none_on_tinystories() {
+    // Pin the observed value: TinyStories has no default chat template.
+    let model = common::load_model();
+    assert!(
+        model.chat_template(None).is_none(),
+        "TinyStories has no embedded chat template"
+    );
+}
+
+#[test]
+fn is_hybrid_false_on_tinystories() {
+    // is_hybrid had no test coverage at all. TinyStories is a plain
+    // transformer, so it should not report as a hybrid (attention +
+    // recurrent) architecture.
+    let model = common::load_model();
+    assert!(!model.is_hybrid());
+}
+
 // ---------- Clone (Arc-backed Model) ----------
 
 #[test]
