@@ -159,3 +159,36 @@ fn context_from_cloned_model_is_independent() {
     assert_eq!(ctx2.free_slots(), params.n_seq_max as usize,
         "second context should have full slots independent of first");
 }
+
+// ---------- Context keeps Model alive ----------
+
+// Regression test: the llama_context holds an internal `const llama_model &`
+// reference into the loaded model and dereferences it during decode and in
+// its own destructor. Dropping the caller's Model handle must NOT free the
+// underlying llama_model while a Context (or anything derived from it) is
+// still alive.
+#[test]
+fn context_outlives_dropped_model_handle() {
+    use rusty_llama::{Model, ModelParams};
+
+    // Load a *fresh* Model (not the shared OnceLock-cached one), so that
+    // dropping every handle we hold actually releases the C resource.
+    let path = common::model_path();
+    let mut mparams = ModelParams::new();
+    mparams.n_gpu_layers = 0;
+    let model = Model::load_from_file(&path, mparams).expect("failed to load model");
+
+    let params = common::test_ctx_params();
+    let ctx = Context::new(&model, &params).expect("context should be created");
+
+    // Drop the user's only Model handle. The context must keep the
+    // underlying llama_model alive internally.
+    drop(model);
+
+    // Exercise codepaths that read model.hparams / model.vocab through the
+    // llama_context. Without the fix this is UAF.
+    let mut seq = ctx.sequence().expect("sequence should be available");
+    seq.push(0);
+    let _ = seq.tokens();
+    let _ = ctx.n_ctx();
+}

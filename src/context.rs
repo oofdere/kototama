@@ -114,6 +114,11 @@ pub(crate) struct ContextActor {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    // Keeps the underlying llama_model alive for as long as the
+    // llama_context exists. llama_context holds a `const llama_model &`
+    // internally and dereferences it during decode/encode and in its
+    // own destructor, so freeing the model first would be UB.
+    _model: Model,
 }
 
 unsafe impl Send for ContextActor {}
@@ -295,6 +300,7 @@ impl Context {
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            _model: model.clone(),
         };
         let actor = actor_inner.start();
 
