@@ -329,4 +329,13 @@ impl Context {
             .sample_token(SamplerPtr(sampler.as_ptr()))
             .unwrap()
     }
+
+    /// Returns true if `self` and `other` are handles to the same underlying
+    /// context (i.e. they share the same actor and KV cache).
+    ///
+    /// Clones produced by `Context::clone` compare equal; independent
+    /// `Context::new` calls do not.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }

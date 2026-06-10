@@ -210,6 +210,90 @@ fn copy_from() {
     assert_eq!(dst.tokens(), src.tokens());
 }
 
+// ---------- Cross-context kv_copy / copy_to / copy_from guard ----------
+
+#[test]
+#[should_panic(expected = "same Context")]
+fn kv_copy_across_contexts_panics_instead_of_aborting() {
+    // Without the same-context guard, this routes `other.id` through
+    // `self.ctx`'s actor and either corrupts an unrelated sequence inside
+    // `self.ctx` or trips llama.cpp's `GGML_ASSERT(seq_id_dst < ...)` and
+    // aborts the process — both reachable from purely safe code.
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx1 = Context::new(&model, &params).unwrap();
+    let ctx2 = Context::new(&model, &params).unwrap();
+
+    let src = ctx1.sequence().unwrap();
+    let mut dst = ctx2.sequence().unwrap();
+
+    src.kv_copy(&mut dst, 0..0);
+}
+
+#[test]
+#[should_panic(expected = "same Context")]
+fn copy_to_across_contexts_panics_instead_of_aborting() {
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx1 = Context::new(&model, &params).unwrap();
+    let ctx2 = Context::new(&model, &params).unwrap();
+
+    let src = ctx1.sequence().unwrap();
+    let mut dst = ctx2.sequence().unwrap();
+
+    src.copy_to(&mut dst, 0..0);
+}
+
+#[test]
+#[should_panic(expected = "same Context")]
+fn copy_from_across_contexts_panics_instead_of_aborting() {
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx1 = Context::new(&model, &params).unwrap();
+    let ctx2 = Context::new(&model, &params).unwrap();
+
+    let src = ctx1.sequence().unwrap();
+    let mut dst = ctx2.sequence().unwrap();
+
+    dst.copy_from(&src, 0..0);
+}
+
+#[test]
+fn copy_to_across_cloned_context_handles_works() {
+    // Cloned Context handles share the same actor + KV cache, so cross-handle
+    // copies are well-defined and must still succeed.
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx1 = Context::new(&model, &params).unwrap();
+    let ctx2 = ctx1.clone();
+
+    let mut src = ctx1.sequence().unwrap();
+    let mut dst = ctx2.sequence().unwrap();
+
+    let tokens = model.tokenize("hi", false, false);
+    src.extend(&tokens);
+    dst.extend(&tokens);
+
+    src.copy_to(&mut dst, 0..tokens.len());
+    assert_eq!(dst.tokens(), src.tokens());
+}
+
+#[test]
+fn context_ptr_eq_matches_clones_but_not_independent_news() {
+    let (model, _) = setup();
+    let params = common::test_ctx_params();
+    let ctx1 = Context::new(&model, &params).unwrap();
+    let ctx2 = ctx1.clone();
+    let ctx3 = Context::new(&model, &params).unwrap();
+
+    assert!(ctx1.ptr_eq(&ctx2), "Context::clone should compare ptr-equal");
+    assert!(!ctx1.ptr_eq(&ctx3), "independent Context::new should not");
+}
+
 // ---------- Sequence::is_empty() (new in this PR) ----------
 
 #[test]
