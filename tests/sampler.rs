@@ -75,6 +75,32 @@ fn adaptive_p_init() {
 
 // ---------- SamplerChain ----------
 
+/// Verify that `into_raw` transfers ownership without running Drop.
+///
+/// Before the fix, `into_raw` did not call `mem::forget(self)`, so the
+/// SamplerChain destructor freed the C resource and the returned pointer
+/// was dangling (use-after-free). After the fix, the pointer remains
+/// valid and the caller is responsible for freeing it.
+#[test]
+fn sampler_chain_into_raw_is_valid() {
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+
+    let ptr = chain.into_raw();
+    assert!(!ptr.is_null());
+
+    // The pointer must still be live: query its name via the C API.
+    let name_ptr = unsafe { llama_sys::llama_sampler_name(ptr) };
+    assert!(!name_ptr.is_null());
+    let name = unsafe { std::ffi::CStr::from_ptr(name_ptr) }
+        .to_str()
+        .expect("sampler name should be valid UTF-8");
+    assert!(!name.is_empty(), "sampler name should be non-empty");
+
+    // Caller owns the resource — free it exactly once.
+    unsafe { llama_sys::llama_sampler_free(ptr) };
+}
+
 #[test]
 fn sampler_chain_new() {
     let params = SamplerChainParams::new();
