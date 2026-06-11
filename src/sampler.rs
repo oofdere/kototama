@@ -69,12 +69,24 @@ impl Sampler {
         })
     }
 
+    /// Returns `None` if `llama_sampler_init_grammar` rejects the grammar
+    /// (parse failure, missing root symbol, or left recursion); in that case
+    /// the underlying C function returns `nullptr` and we cannot construct a
+    /// usable `Sampler` — letting that null pointer escape into a
+    /// `SamplerChain` would cause undefined behaviour the next time the chain
+    /// is sampled.
     pub fn grammar(
         vocab: *const llama_vocab,
         grammar_str: *const ::std::os::raw::c_char,
         grammar_root: *const ::std::os::raw::c_char,
-    ) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_grammar(vocab, grammar_str, grammar_root) })
+    ) -> Option<Self> {
+        let ptr =
+            unsafe { llama_sys::llama_sampler_init_grammar(vocab, grammar_str, grammar_root) };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Self(ptr))
+        }
     }
 
     pub fn greedy() -> Self {
@@ -101,6 +113,9 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_typical(p, min_keep) })
     }
 
+    /// Returns `None` if `llama_sampler_init_grammar_lazy` rejects the
+    /// grammar (parse failure, missing root symbol, or left recursion); see
+    /// [`Sampler::grammar`] for the rationale.
     pub fn grammar_lazy(
         vocab: *const llama_vocab,
         grammar_str: *const ::std::os::raw::c_char,
@@ -109,8 +124,8 @@ impl Sampler {
         num_trigger_words: usize,
         trigger_tokens: *const llama_token,
         num_trigger_tokens: usize,
-    ) -> Self {
-        Self(unsafe {
+    ) -> Option<Self> {
+        let ptr = unsafe {
             llama_sys::llama_sampler_init_grammar_lazy(
                 vocab,
                 grammar_str,
@@ -120,7 +135,12 @@ impl Sampler {
                 trigger_tokens,
                 num_trigger_tokens,
             )
-        })
+        };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Self(ptr))
+        }
     }
 
     pub fn temp_ext(temp: f32, delta: f32, exponent: f32) -> Self {
@@ -139,6 +159,9 @@ impl Sampler {
         Self(unsafe { llama_sys::llama_sampler_init_top_p(p, min_keep) })
     }
 
+    /// Returns `None` if `llama_sampler_init_grammar_lazy_patterns` rejects
+    /// the grammar (parse failure, missing root symbol, or left recursion);
+    /// see [`Sampler::grammar`] for the rationale.
     pub fn grammar_lazy_patterns(
         vocab: *const llama_vocab,
         grammar_str: *const ::std::os::raw::c_char,
@@ -147,8 +170,8 @@ impl Sampler {
         num_trigger_patterns: usize,
         trigger_tokens: *const llama_token,
         num_trigger_tokens: usize,
-    ) -> Self {
-        Self(unsafe {
+    ) -> Option<Self> {
+        let ptr = unsafe {
             llama_sys::llama_sampler_init_grammar_lazy_patterns(
                 vocab,
                 grammar_str,
@@ -158,7 +181,12 @@ impl Sampler {
                 trigger_tokens,
                 num_trigger_tokens,
             )
-        })
+        };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Self(ptr))
+        }
     }
 }
 
