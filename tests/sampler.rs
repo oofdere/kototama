@@ -1,4 +1,4 @@
-use rusty_llama::{Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{LlamaSampler, Sampler, SamplerChain, SamplerChainParams};
 
 // ---------- Sampler constructors ----------
 
@@ -103,4 +103,26 @@ fn sampler_chain_params_deref() {
     let params = SamplerChainParams::new();
     // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
     let _no_perf = params.no_perf;
+}
+
+#[test]
+fn sampler_chain_into_raw_does_not_double_free() {
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let ptr = chain.into_raw();
+    // into_raw must inhibit Drop; the pointer should still be live.
+    assert!(!ptr.is_null());
+    // Manually free — would double-free (and likely segfault) before the fix.
+    unsafe { llama_sys::llama_sampler_free(ptr) };
+}
+
+#[test]
+fn sampler_chain_into_raw_preserves_pointer_identity() {
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::top_k(40))
+        .add(Sampler::dist(42));
+    let expected = chain.as_ptr();
+    let got = chain.into_raw();
+    assert_eq!(expected, got);
+    unsafe { llama_sys::llama_sampler_free(got) };
 }
