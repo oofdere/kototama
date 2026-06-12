@@ -20,5 +20,10 @@ jobs:
         submodules: recursive 
     - name: Build
       run: cargo build --verbose
+    # Examples and benches are not built by `cargo build` or `cargo test`,
+    # so without this step an API change that breaks `examples/simple.rs`,
+    # `examples/simple_chat.rs`, or `benches/inference.rs` passes CI.
+    - name: Build examples and benches
+      run: cargo build --examples --benches --verbose
     - name: Run tests
       run: cargo test --verbose -- --test-threads=1
