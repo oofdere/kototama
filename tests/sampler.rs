@@ -75,6 +75,21 @@ fn adaptive_p_init() {
 
 // ---------- SamplerChain ----------
 
+/// Verify `into_raw` transfers ownership without freeing the pointer.
+///
+/// Before the fix, `into_raw` did not call `mem::forget`, so the
+/// `SamplerChain` destructor freed the underlying C sampler and the
+/// returned pointer was dangling (use-after-free).
+#[test]
+fn sampler_chain_into_raw_no_double_free() {
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::greedy());
+    let ptr = chain.into_raw();
+    assert!(!ptr.is_null());
+    // Manually free to prove the pointer is still valid.
+    unsafe { llama_sys::llama_sampler_free(ptr) };
+}
+
 #[test]
 fn sampler_chain_new() {
     let params = SamplerChainParams::new();
