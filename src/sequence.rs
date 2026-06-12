@@ -34,7 +34,9 @@ impl Sequence {
     }
 
     pub fn push(&mut self, token: i32) {
-        let pos = self.tokens.len() as i32;
+        let pos = i32::try_from(self.tokens.len()).expect(
+            "Sequence length exceeds i32::MAX; cannot encode as llama_pos for FFI",
+        );
         self.logits = Some(
             self.ctx
                 .actor()
@@ -49,7 +51,9 @@ impl Sequence {
     /// Useful after `pop()`, `remove()`, or other mutations that invalidate logits.
     pub fn decode(&mut self) {
         if let Some(&last_token) = self.tokens.last() {
-            let pos = (self.tokens.len() - 1) as i32;
+            let pos = i32::try_from(self.tokens.len() - 1).expect(
+                "Sequence length exceeds i32::MAX; cannot encode as llama_pos for FFI",
+            );
             self.logits = Some(
                 self.ctx
                     .actor()
@@ -61,10 +65,12 @@ impl Sequence {
     }
 
     pub fn pop(&mut self) -> Option<i32> {
-        let len = self.tokens.len() as i32;
-        if len == 0 {
+        if self.tokens.is_empty() {
             return None;
         }
+        let len = i32::try_from(self.tokens.len()).expect(
+            "Sequence length exceeds i32::MAX; cannot encode as llama_pos for FFI",
+        );
         if self.kv_remove((len - 1)..len) {
             let token = self.tokens.pop();
             self.logits = None;
@@ -89,7 +95,13 @@ impl Sequence {
     }
 
     pub fn remove(&mut self, range: Range<usize>) -> bool {
-        if self.kv_remove(range.start as i32..range.end as i32) {
+        let start = i32::try_from(range.start).expect(
+            "Sequence range.start exceeds i32::MAX; cannot encode as llama_pos for FFI",
+        );
+        let end = i32::try_from(range.end).expect(
+            "Sequence range.end exceeds i32::MAX; cannot encode as llama_pos for FFI",
+        );
+        if self.kv_remove(start..end) {
             self.tokens.drain(range);
             self.logits = None;
             true
@@ -99,7 +111,13 @@ impl Sequence {
     }
 
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
-        self.kv_copy(other, range.start as i32..range.end as i32);
+        let start = i32::try_from(range.start).expect(
+            "Sequence range.start exceeds i32::MAX; cannot encode as llama_pos for FFI",
+        );
+        let end = i32::try_from(range.end).expect(
+            "Sequence range.end exceeds i32::MAX; cannot encode as llama_pos for FFI",
+        );
+        self.kv_copy(other, start..end);
         other.tokens.clear();
         other
             .tokens

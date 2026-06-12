@@ -343,3 +343,53 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&chain);
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+// ---------- Position/range i32 overflow guards ----------
+//
+// llama.cpp's memory_seq APIs take llama_pos (i32) for positions/ranges.
+// Casting `usize -> i32` via `as` silently truncates and produces negative
+// values when the input exceeds i32::MAX. Negative llama_pos values have
+// special meaning in llama.cpp (e.g. -1 = "from start" / "to end") and
+// passing a wrapped value would silently target unintended positions or
+// trigger FFI-side undefined behavior. Sequence guards the conversion
+// with `i32::try_from` and panics with a clear message instead.
+
+#[test]
+#[should_panic(expected = "exceeds i32::MAX")]
+fn remove_panics_on_range_start_overflow() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let start = (i32::MAX as usize) + 1;
+    let _ = seq.remove(start..(start + 1));
+}
+
+#[test]
+#[should_panic(expected = "exceeds i32::MAX")]
+fn remove_panics_on_range_end_overflow() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let _ = seq.remove(0..((i32::MAX as usize) + 1));
+}
+
+#[test]
+#[should_panic(expected = "exceeds i32::MAX")]
+fn copy_to_panics_on_range_start_overflow() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let seq = ctx.sequence().unwrap();
+    let mut other = ctx.sequence().unwrap();
+    let start = (i32::MAX as usize) + 1;
+    seq.copy_to(&mut other, start..(start + 1));
+}
+
+#[test]
+#[should_panic(expected = "exceeds i32::MAX")]
+fn copy_to_panics_on_range_end_overflow() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let seq = ctx.sequence().unwrap();
+    let mut other = ctx.sequence().unwrap();
+    seq.copy_to(&mut other, 0..((i32::MAX as usize) + 1));
+}
