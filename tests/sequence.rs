@@ -343,3 +343,96 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&chain);
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+// ---------- sample() must use this sequence's logits, not the context's last decode ----------
+//
+// `llama_sampler_sample(smpl, ctx, -1)` reads from the context's most
+// recently decoded output. With multiple sequences sharing one context, the
+// "last output" is whichever sequence decoded most recently — sampling
+// `seq1.sample()` after `seq2.push()` used to silently return a token
+// chosen from seq2's distribution, not seq1's. `Sequence::sample` now feeds
+// the cached per-sequence logits straight into `llama_sampler_apply`, so
+// the choice is pinned to this sequence regardless of what other sequences
+// have done on the context.
+
+#[test]
+fn sample_uses_this_sequences_logits_not_last_decoded() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq1 = ctx.sequence().unwrap();
+    let mut seq2 = ctx.sequence().unwrap();
+
+    let p1 = model.tokenize("once upon", true, false);
+    let p2 = model.tokenize("the cat sat on", true, false);
+    seq1.extend(&p1);
+    seq2.extend(&p2);
+
+    // Sanity: the two sequences must actually disagree on the greedy choice,
+    // otherwise the test cannot distinguish the bug from a benign coincidence.
+    let argmax = |logits: &[f32]| -> i32 {
+        logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i as i32)
+            .unwrap()
+    };
+    let argmax1 = argmax(seq1.logits().unwrap());
+    let argmax2 = argmax(seq2.logits().unwrap());
+    assert_ne!(
+        argmax1, argmax2,
+        "test prompts collapse to the same greedy token; pick prompts that diverge"
+    );
+
+    // The C context's "last decode" right now is seq2 (it was extended last).
+    // Greedy-sampling on seq1 must still pick seq1's argmax.
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let sampled1 = seq1.sample(&chain);
+    assert_eq!(
+        sampled1, argmax1,
+        "seq1.sample() returned seq2's argmax — sampling is reading the C context's \
+         last-decoded logits instead of seq1's cached logits"
+    );
+
+    // Symmetric check: now make seq1 the most recent decode by pushing one
+    // more token, then sample on seq2. Should still get seq2's argmax.
+    seq1.push(sampled1);
+    let argmax2_after = argmax(seq2.logits().unwrap());
+    let chain2 = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let sampled2 = seq2.sample(&chain2);
+    assert_eq!(
+        sampled2, argmax2_after,
+        "seq2.sample() returned seq1's argmax after seq1 decoded last"
+    );
+}
+
+#[test]
+fn sample_advances_sampler_state_between_calls() {
+    // `Sequence::sample` must call `llama_sampler_accept` after each
+    // selection, so a stateful sampler (e.g. `dist(seed)`) advances its
+    // RNG between successive calls on the same logits. Without `accept`,
+    // a fresh `dist` sampler keeps returning the same token forever.
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    seq.extend(&model.tokenize("once upon a time", true, false));
+
+    // Wide-distribution chain so the seed actually has room to disagree
+    // with itself across steps.
+    let chain = SamplerChain::new(&SamplerChainParams::new())
+        .add(Sampler::temp(1.5))
+        .add(Sampler::top_k(40))
+        .add(Sampler::dist(0xC0FFEE));
+
+    // Sample several times against the *same* cached logits. If accept
+    // wasn't being called the sampler RNG would be frozen and every call
+    // would yield the same token.
+    let samples: Vec<i32> = (0..8).map(|_| seq.sample(&chain)).collect();
+    let distinct: std::collections::HashSet<i32> = samples.iter().copied().collect();
+    assert!(
+        distinct.len() > 1,
+        "repeated sample() on identical logits all returned the same token \
+         ({:?}) — llama_sampler_accept is not being called between samples",
+        samples
+    );
+}

@@ -1,4 +1,4 @@
-use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
+use crate::context::{context_protocol, ContextProtocol};
 use crate::{Context, LlamaSampler};
 use llama_sys::*;
 use std::ops::{Index, Range};
@@ -150,11 +150,56 @@ impl Sequence {
         self.logits = None;
     }
 
+    /// Samples a token from this sequence's cached logits.
+    ///
+    /// Unlike `llama_sampler_sample(smpl, ctx, -1)`, which reads from the
+    /// llama.cpp context's most-recently-decoded output, this samples from
+    /// the `Vec<f32>` cached by the last `push()`/`decode()` on **this**
+    /// sequence. With multiple sequences in one context the C context's
+    /// "last output" is whichever sequence decoded most recently — sampling
+    /// off of it would silently return a token chosen from a different
+    /// sequence's distribution.
     pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> i32 {
-        self.ctx
-            .actor()
-            .sample_token(SamplerPtr(sampler.as_ptr()))
-            .unwrap()
+        let logits = self
+            .logits
+            .as_deref()
+            .expect("Sequence::sample called before any decode; push() or decode() first");
+
+        // Build the candidate set from the cached per-sequence logits, then
+        // mirror `llama_sampler_sample`'s apply/accept pair (llama.h:1470-1480).
+        let mut data: Vec<llama_token_data> = logits
+            .iter()
+            .enumerate()
+            .map(|(id, &logit)| llama_token_data {
+                id: id as i32,
+                logit,
+                p: 0.0,
+            })
+            .collect();
+        let mut cur_p = llama_token_data_array {
+            data: data.as_mut_ptr(),
+            size: data.len(),
+            selected: -1,
+            sorted: false,
+        };
+
+        let sampler_ptr = sampler.as_ptr();
+        unsafe {
+            llama_sampler_apply(sampler_ptr, &mut cur_p);
+            assert!(
+                cur_p.selected >= 0 && (cur_p.selected as usize) < cur_p.size,
+                "Sequence::sample: sampler did not select a valid candidate (selected={}, size={})",
+                cur_p.selected,
+                cur_p.size,
+            );
+            let token = (*cur_p.data.add(cur_p.selected as usize)).id;
+            llama_sampler_accept(sampler_ptr, token);
+            // Keep `data` alive past the FFI calls: chain samplers may swap
+            // `cur_p.data` for an internal buffer, but for non-chain samplers
+            // it points back into our Vec, and reads above must precede drop.
+            drop(data);
+            token
+        }
     }
 }
 
