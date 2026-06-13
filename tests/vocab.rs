@@ -3,13 +3,19 @@ mod common;
 #[test]
 fn bos_token_some() {
     let model = common::load_model();
-    assert!(model.bos_token().is_some(), "TinyStories should have a BOS token");
+    assert!(
+        model.bos_token().is_some(),
+        "TinyStories should have a BOS token"
+    );
 }
 
 #[test]
 fn eos_token_some() {
     let model = common::load_model();
-    assert!(model.eos_token().is_some(), "TinyStories should have an EOS token");
+    assert!(
+        model.eos_token().is_some(),
+        "TinyStories should have an EOS token"
+    );
 }
 
 #[test]

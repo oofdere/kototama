@@ -12,7 +12,10 @@ fn context_new_ok() {
 fn n_ctx_at_least_params() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
-    assert!(ctx.n_ctx() >= params.n_ctx, "n_ctx should be at least the requested size");
+    assert!(
+        ctx.n_ctx() >= params.n_ctx,
+        "n_ctx should be at least the requested size"
+    );
 }
 
 #[test]
@@ -52,7 +55,10 @@ fn all_slots_exhausted() {
     let n = params.n_seq_max as usize;
     let seqs: Vec<_> = (0..n).map(|_| ctx.sequence().unwrap()).collect();
     assert_eq!(ctx.free_slots(), 0);
-    assert!(ctx.sequence().is_none(), "should return None when all slots are taken");
+    assert!(
+        ctx.sequence().is_none(),
+        "should return None when all slots are taken"
+    );
     drop(seqs);
     assert_eq!(ctx.free_slots(), n);
 }
@@ -141,7 +147,8 @@ fn context_from_cloned_model() {
     let (model, params) = common::load_model_and_context();
     let model_clone = model.clone();
     // Context should be successfully created from a cloned model handle
-    let ctx = Context::new(&model_clone, &params).expect("context from cloned model should succeed");
+    let ctx =
+        Context::new(&model_clone, &params).expect("context from cloned model should succeed");
     assert!(ctx.free_slots() > 0);
     assert!(ctx.n_ctx() >= params.n_ctx);
 }
@@ -156,6 +163,9 @@ fn context_from_cloned_model_is_independent() {
 
     // Independent contexts: checking out from one doesn't affect the other
     let _seq1 = ctx1.sequence().unwrap();
-    assert_eq!(ctx2.free_slots(), params.n_seq_max as usize,
-        "second context should have full slots independent of first");
+    assert_eq!(
+        ctx2.free_slots(),
+        params.n_seq_max as usize,
+        "second context should have full slots independent of first"
+    );
 }

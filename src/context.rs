@@ -79,12 +79,7 @@ pub(crate) trait ContextProtocol: Send + Sync {
         seq_id: llama_seq_id,
     ) -> Response<Result<Vec<f32>, DecodeError>>;
     fn sample_token(&self, sampler: SamplerPtr) -> Response<llama_token>;
-    fn memory_seq_rm(
-        &self,
-        seq_id: llama_seq_id,
-        p0: llama_pos,
-        p1: llama_pos,
-    ) -> Response<bool>;
+    fn memory_seq_rm(&self, seq_id: llama_seq_id, p0: llama_pos, p1: llama_pos) -> Response<bool>;
     fn memory_seq_cp(
         &self,
         src: llama_seq_id,
@@ -213,9 +208,7 @@ impl Handler<MemorySeqCp> for ContextActor {
 
 impl Handler<MemorySeqAdd> for ContextActor {
     fn handle(&mut self, msg: MemorySeqAdd, _ctx: &ActorContext<Self>) {
-        unsafe {
-            llama_memory_seq_add(self.get_memory(), msg.seq_id, msg.p0, msg.p1, msg.delta)
-        }
+        unsafe { llama_memory_seq_add(self.get_memory(), msg.seq_id, msg.p0, msg.p1, msg.delta) }
     }
 }
 

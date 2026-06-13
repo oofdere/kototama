@@ -18,7 +18,11 @@ fn load_model_invalid_path_returns_err() {
 fn tokenize_empty_with_bos_gives_bos() {
     let model = common::load_model();
     let tokens = model.tokenize("", true, false);
-    assert_eq!(tokens.len(), 1, "empty text with add_bos should produce exactly BOS");
+    assert_eq!(
+        tokens.len(),
+        1,
+        "empty text with add_bos should produce exactly BOS"
+    );
     assert_eq!(tokens[0], model.bos_token().unwrap());
 }
 
@@ -50,11 +54,13 @@ fn greedy_sample_matches_argmax() {
         }
     }
 
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::greedy());
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
     let sampled = seq.sample(&chain);
 
-    assert_eq!(sampled, argmax, "greedy sampler should pick the argmax token");
+    assert_eq!(
+        sampled, argmax,
+        "greedy sampler should pick the argmax token"
+    );
 }
 
 #[test]
@@ -91,7 +97,11 @@ fn two_sequences_independent() {
 
     assert_eq!(seq_a.tokens(), tokens_a.as_slice());
     assert_eq!(seq_b.tokens(), tokens_b.as_slice());
-    assert_ne!(seq_a.logits().unwrap(), seq_b.logits().unwrap(), "different prompts should produce different logits");
+    assert_ne!(
+        seq_a.logits().unwrap(),
+        seq_b.logits().unwrap(),
+        "different prompts should produce different logits"
+    );
 }
 
 // ---------- Sequence logits state ----------
@@ -101,7 +111,10 @@ fn logits_empty_before_push() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
     let seq = ctx.sequence().unwrap();
-    assert!(seq.logits().is_none(), "logits should be None before any token is pushed");
+    assert!(
+        seq.logits().is_none(),
+        "logits should be None before any token is pushed"
+    );
 }
 
 // ---------- Generation determinism ----------
@@ -137,7 +150,10 @@ fn greedy_generation_is_deterministic() {
 
     let run1 = generate();
     let run2 = generate();
-    assert_eq!(run1, run2, "greedy generation should be deterministic across runs");
+    assert_eq!(
+        run1, run2,
+        "greedy generation should be deterministic across runs"
+    );
 }
 
 // ---------- Token-to-piece coverage ----------

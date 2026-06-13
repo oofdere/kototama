@@ -124,7 +124,8 @@ impl Sequence {
     }
 
     pub fn kv_remove(&mut self, range: Range<i32>) -> bool {
-        let ok = self.ctx
+        let ok = self
+            .ctx
             .actor()
             .memory_seq_rm(self.id, range.start, range.end)
             .unwrap();

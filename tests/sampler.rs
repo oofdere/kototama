@@ -93,8 +93,7 @@ fn sampler_chain_add() {
 
 #[test]
 fn sampler_chain_perf() {
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::greedy());
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
     let _perf = chain.perf();
 }
 

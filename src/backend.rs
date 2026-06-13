@@ -43,5 +43,3 @@ pub extern "C" fn llama_log_callback(
         _ => print!("{}", msg_str),
     }
 }
-
-

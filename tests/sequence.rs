@@ -253,7 +253,10 @@ fn is_empty_true_after_pop_clears_sequence() {
     for _ in 0..tokens.len() {
         seq.pop();
     }
-    assert!(seq.is_empty(), "sequence should be empty after all tokens are popped");
+    assert!(
+        seq.is_empty(),
+        "sequence should be empty after all tokens are popped"
+    );
 }
 
 #[test]
@@ -277,11 +280,12 @@ fn sequence_sample_greedy_is_valid_token() {
     let tokens = model.tokenize("hello", false, false);
     seq.extend(&tokens);
 
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::greedy());
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
     let token = seq.sample(&chain);
-    assert!(token >= 0 && token < model.n_tokens(),
-        "sampled token should be within vocab range");
+    assert!(
+        token >= 0 && token < model.n_tokens(),
+        "sampled token should be within vocab range"
+    );
 }
 
 #[test]
@@ -301,12 +305,13 @@ fn sequence_sample_matches_argmax() {
         .map(|(i, _)| i as i32)
         .unwrap();
 
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::greedy());
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
     let sampled = seq.sample(&chain);
 
-    assert_eq!(sampled, argmax,
-        "Sequence::sample with greedy should match manual argmax");
+    assert_eq!(
+        sampled, argmax,
+        "Sequence::sample with greedy should match manual argmax"
+    );
 }
 
 #[test]
@@ -322,8 +327,10 @@ fn sequence_sample_with_temperature_in_vocab_range() {
         .add(Sampler::top_k(40))
         .add(Sampler::dist(123));
     let token = seq.sample(&chain);
-    assert!(token >= 0 && token < model.n_tokens(),
-        "temperature-sampled token should be in vocab range");
+    assert!(
+        token >= 0 && token < model.n_tokens(),
+        "temperature-sampled token should be in vocab range"
+    );
 }
 
 #[test]
@@ -335,8 +342,7 @@ fn sequence_sample_does_not_require_mut() {
     let tokens = model.tokenize("test", false, false);
     seq.extend(&tokens);
 
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::greedy());
+    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
 
     // Both immutable borrows should coexist
     let _logits = seq.logits();

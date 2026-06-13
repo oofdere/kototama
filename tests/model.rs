@@ -16,9 +16,8 @@ fn desc_nonempty() {
 #[test]
 fn desc_matches_probe_length() {
     let model = common::load_model();
-    let needed = unsafe {
-        llama_sys::llama_model_desc(model.as_ptr() as *mut _, std::ptr::null_mut(), 0)
-    };
+    let needed =
+        unsafe { llama_sys::llama_model_desc(model.as_ptr() as *mut _, std::ptr::null_mut(), 0) };
     let desc = model.desc();
     assert_eq!(
         desc.len(),

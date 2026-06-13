@@ -59,7 +59,7 @@ fn main() {
         // n_batch is the maximum number of tokens that can be processed in a single call to llama_decode
         // 1 is used here because the implementation currently only supports single-token decoding
         ctx_params.n_batch = 1; // n_prompt as u32;
-        // enable performance counters
+                                // enable performance counters
         ctx_params.no_perf = false;
     }
 
@@ -93,8 +93,6 @@ fn main() {
     }
 
     println!();
-
-    let _t_main_end = unsafe { llama_sys::llama_time_us() };
 
     drop(seq);
 }
