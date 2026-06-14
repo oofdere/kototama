@@ -1,6 +1,7 @@
 mod common;
 
-use rusty_llama::Context;
+use rusty_llama::test_common::{model_path, test_ctx_params};
+use rusty_llama::{Context, Model, ModelParams};
 
 #[test]
 fn context_new_ok() {
@@ -151,6 +152,30 @@ fn context_from_cloned_model() {
         Context::new(&model_clone, &params).expect("context from cloned model should succeed");
     assert!(ctx.free_slots() > 0);
     assert!(ctx.n_ctx() >= params.n_ctx);
+}
+
+// ---------- Model lifetime is extended by Context (use-after-free regression) ----------
+
+// `llama_context` stores `const llama_model & model;` and reads `model.vocab` /
+// `model.hparams` during `llama_decode` and inside `~llama_context()`. If the
+// last `Model` handle were dropped while a `Context` was still alive, those
+// reads would touch freed memory. Loads an independent (non-shared) `Model` so
+// dropping it actually releases the underlying `llama_model`.
+#[test]
+fn context_outlives_dropped_model_handle() {
+    let path = model_path();
+    let mut model_params = ModelParams::new();
+    model_params.n_gpu_layers = 0;
+    let model = Model::load_from_file(&path, model_params).expect("load model");
+
+    let params = test_ctx_params();
+    let ctx = Context::new(&model, &params).expect("create context");
+    drop(model);
+
+    let mut seq = ctx.sequence().expect("checkout sequence");
+    seq.push(0);
+    drop(seq);
+    drop(ctx);
 }
 
 #[test]

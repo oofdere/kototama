@@ -109,6 +109,13 @@ pub(crate) struct ContextActor {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    // `llama_context` stores `const llama_model & model;` and reads
+    // `model.vocab` / `model.hparams` during `llama_decode` and inside
+    // `~llama_context()`. Holding an Arc-backed `Model` clone keeps the
+    // underlying `llama_model` alive until after `llama_free` runs:
+    // the explicit `Drop` below calls `llama_free` first, then fields
+    // are dropped in declaration order, so `_model` is released last.
+    _model: Model,
 }
 
 unsafe impl Send for ContextActor {}
@@ -288,6 +295,7 @@ impl Context {
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            _model: model.clone(),
         };
         let actor = actor_inner.start();
 
