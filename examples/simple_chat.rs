@@ -38,11 +38,10 @@ fn main() {
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
 
-    // initialize the sampler
-    let smpl = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::min_p(0.05, 1))
-        .add(Sampler::temp(0.8))
-        .add(Sampler::dist(llama_sys::LLAMA_DEFAULT_SEED));
+    // initialize the samplers (applied manually: min_p -> temp -> dist)
+    let minp = MinP::new(0.05, 1);
+    let temp = Temperature::new(0.8);
+    let dist = Dist::new(llama_sys::LLAMA_DEFAULT_SEED as u64);
 
     let mut messages: Vec<Message> = Vec::new();
     fn format(messages: &Vec<Message>) -> String {
@@ -83,8 +82,11 @@ fn main() {
         let mut response = String::new();
         println!();
         loop {
-            // sample the next token
-            let token = seq.sample(&smpl);
+            // sample the next token (min_p -> temp -> dist)
+            let logits = seq.logits().expect("no logits");
+            let l = minp.apply(logits);
+            let l = temp.apply(&l);
+            let token = dist.sample(&l);
 
             // is it an end of generation?
             if model.is_eog(token) {

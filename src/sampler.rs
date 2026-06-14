@@ -1,189 +1,134 @@
-use llama_sys::{llama_logit_bias, llama_token, llama_vocab};
+use crate::Token;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use std::cell::RefCell;
 
-#[repr(transparent)]
-pub struct Sampler(*mut llama_sys::llama_sampler);
-
-impl Sampler {
-    // todo these really are not rusty
-    pub fn adaptive_p(target: f32, decay: f32, seed: u32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_adaptive_p(target, decay, seed) })
+pub trait Sampler {
+    fn name(&self) -> &'static str {
+        let full_name = std::any::type_name::<Self>();
+        full_name.split("::").last().unwrap_or(full_name)
     }
 
-    pub fn infill(vocab: *const llama_vocab) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_infill(vocab) })
+    fn apply(&self, logits: &[f32]) -> Vec<f32> {
+        let mut logits = logits.to_vec();
+        self.apply_mut(&mut logits);
+        logits
     }
 
-    pub fn logit_bias(
-        n_vocab: i32,
-        n_logit_bias: i32,
-        logit_bias: *const llama_logit_bias,
-    ) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_logit_bias(n_vocab, n_logit_bias, logit_bias) })
+    fn apply_mut(&self, logits: &mut [f32]);
+
+    fn sample(&self, logits: &[f32]) -> Token {
+        let mut logits = logits.to_vec();
+        self.apply_mut(&mut logits);
+        let (id, _) = logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap();
+
+        id as i32
     }
 
-    pub fn penalties(
-        penalty_last_n: i32,
-        penalty_repeat: f32,
-        penalty_freq: f32,
-        penalty_present: f32,
-    ) -> Self {
-        Self(unsafe {
-            llama_sys::llama_sampler_init_penalties(
-                penalty_last_n,
-                penalty_repeat,
-                penalty_freq,
-                penalty_present,
-            )
-        })
-    }
+    fn sample_mut(&self, logits: &mut [f32]) -> Token {
+        self.apply_mut(logits);
+        
+        let (id, _) = logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap();
 
-    pub fn xtc(p: f32, t: f32, min_keep: usize, seed: u32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_xtc(p, t, min_keep, seed) })
-    }
-
-    pub fn dist(seed: u32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_dist(seed) })
-    }
-
-    pub fn dry(
-        vocab: *const llama_vocab,
-        n_ctx_train: i32,
-        dry_multiplier: f32,
-        dry_base: f32,
-        dry_allowed_length: i32,
-        dry_penalty_last_n: i32,
-        seq_breakers: *mut *const ::std::os::raw::c_char,
-        num_breakers: usize,
-    ) -> Self {
-        Self(unsafe {
-            llama_sys::llama_sampler_init_dry(
-                vocab,
-                n_ctx_train,
-                dry_multiplier,
-                dry_base,
-                dry_allowed_length,
-                dry_penalty_last_n,
-                seq_breakers,
-                num_breakers,
-            )
-        })
-    }
-
-    pub fn grammar(
-        vocab: *const llama_vocab,
-        grammar_str: *const ::std::os::raw::c_char,
-        grammar_root: *const ::std::os::raw::c_char,
-    ) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_grammar(vocab, grammar_str, grammar_root) })
-    }
-
-    pub fn greedy() -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_greedy() })
-    }
-
-    pub fn min_p(p: f32, min_keep: usize) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_min_p(p, min_keep) })
-    }
-
-    pub fn mirostat(n_vocab: i32, seed: u32, tau: f32, eta: f32, m: i32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_mirostat(n_vocab, seed, tau, eta, m) })
-    }
-
-    pub fn mirostat_v2(seed: u32, tau: f32, eta: f32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_mirostat_v2(seed, tau, eta) })
-    }
-
-    pub fn temp(temp: f32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_temp(temp) })
-    }
-
-    pub fn typical(p: f32, min_keep: usize) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_typical(p, min_keep) })
-    }
-
-    pub fn grammar_lazy(
-        vocab: *const llama_vocab,
-        grammar_str: *const ::std::os::raw::c_char,
-        grammar_root: *const ::std::os::raw::c_char,
-        trigger_words: *mut *const ::std::os::raw::c_char,
-        num_trigger_words: usize,
-        trigger_tokens: *const llama_token,
-        num_trigger_tokens: usize,
-    ) -> Self {
-        Self(unsafe {
-            llama_sys::llama_sampler_init_grammar_lazy(
-                vocab,
-                grammar_str,
-                grammar_root,
-                trigger_words,
-                num_trigger_words,
-                trigger_tokens,
-                num_trigger_tokens,
-            )
-        })
-    }
-
-    pub fn temp_ext(temp: f32, delta: f32, exponent: f32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_temp_ext(temp, delta, exponent) })
-    }
-
-    pub fn top_k(k: i32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_top_k(k) })
-    }
-
-    pub fn top_n_sigma(n: f32) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_top_n_sigma(n) })
-    }
-
-    pub fn top_p(p: f32, min_keep: usize) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_init_top_p(p, min_keep) })
-    }
-
-    pub fn grammar_lazy_patterns(
-        vocab: *const llama_vocab,
-        grammar_str: *const ::std::os::raw::c_char,
-        grammar_root: *const ::std::os::raw::c_char,
-        trigger_patterns: *mut *const ::std::os::raw::c_char,
-        num_trigger_patterns: usize,
-        trigger_tokens: *const llama_token,
-        num_trigger_tokens: usize,
-    ) -> Self {
-        Self(unsafe {
-            llama_sys::llama_sampler_init_grammar_lazy_patterns(
-                vocab,
-                grammar_str,
-                grammar_root,
-                trigger_patterns,
-                num_trigger_patterns,
-                trigger_tokens,
-                num_trigger_tokens,
-            )
-        })
+        id as i32
     }
 }
 
-impl Drop for Sampler {
-    fn drop(&mut self) {
-        unsafe {
-            llama_sys::llama_sampler_free(self.0);
+pub struct Temperature{
+    pub temp: f32,
+}
+
+impl Temperature {
+    pub fn new(temp: f32) -> Self {
+        Self { temp }
+    }
+}
+
+impl Sampler for Temperature {
+    fn apply_mut(&self, logits: &mut [f32]) {
+        if self.temp == 0.0 {
+            return;
+        }
+
+        let inv_temp = 1.0 / self.temp;
+
+        for logit in logits.iter_mut() {
+            *logit *= inv_temp;
         }
     }
 }
 
-pub trait LlamaSampler {
-    fn as_ptr(&self) -> *mut llama_sys::llama_sampler;
+pub struct MinP {
+    pub p: f32,
+    pub min_keep: usize,
 }
 
-impl LlamaSampler for Sampler {
-    fn as_ptr(&self) -> *mut llama_sys::llama_sampler {
-        self.0
+impl MinP {
+    pub fn new(p: f32, min_keep: usize) -> Self {
+        Self { p, min_keep }
     }
 }
 
-impl Clone for Sampler {
-    fn clone(&self) -> Self {
-        Self(unsafe { llama_sys::llama_sampler_clone(self.0) })
+impl Sampler for MinP {
+    fn apply_mut(&self, logits: &mut [f32]) {
+        if logits.len() <= self.min_keep {
+            return;
+        }
+
+        let Some(&logit_max) = logits.iter().max_by(|a, b| a.total_cmp(b)) else {
+            return;
+        };
+        let mut thresh = logit_max + self.p.ln();
+
+        if self.min_keep > 0 {
+            let mut copy: Vec<f32> = logits.to_vec();
+            copy.select_nth_unstable_by(self.min_keep - 1, |a, b| b.total_cmp(a));
+            thresh = thresh.min(copy[self.min_keep - 1]);
+        }
+
+        for logit in logits.iter_mut() {
+            if *logit < thresh {
+                *logit = f32::NEG_INFINITY;
+            }
+        }
     }
 }
 
-// Shorthand for: const auto * logits = llama_get_logits_ith(ctx, idx); llama_token_data_array cur_p = { ... init from logits ... }; llama_sampler_apply(smpl, &cur_p); auto token = cur_p.datacur_p.selected.id; llama_sampler_accept(smpl, token); return token; Returns the sampled token
+pub struct Dist {
+    rng: RefCell<StdRng>,
+}
+
+impl Dist {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            rng: RefCell::new(StdRng::seed_from_u64(seed)),
+        }
+    }
+}
+
+impl Sampler for Dist {
+    fn apply_mut(&self, _logits: &mut [f32]) {}
+
+    fn sample(&self, logits: &[f32]) -> Token {
+        let m = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = logits.iter().map(|&l| (l - m).exp()).collect();
+        let sum: f32 = exps.iter().copied().sum();
+        let r = self.rng.borrow_mut().random::<f32>() * sum;
+        let mut acc = 0.0;
+        for (id, &e) in exps.iter().enumerate() {
+            acc += e;
+            if acc >= r {
+                return id as i32;
+            }
+        }
+        (exps.len().saturating_sub(1)) as i32
+    }
+}

@@ -1,6 +1,5 @@
 use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
-use crate::{Context, LlamaSampler};
-use llama_sys::*;
+use crate::{Context, Sampler, Token};
 use std::ops::{Index, Range};
 
 /// A sequence handle. No lifetime parameters — holds a clone of the Context
@@ -151,11 +150,10 @@ impl Sequence {
         self.logits = None;
     }
 
-    pub fn sample<S: LlamaSampler>(&self, sampler: &S) -> i32 {
-        self.ctx
-            .actor()
-            .sample_token(SamplerPtr(sampler.as_ptr()))
-            .unwrap()
+    pub fn sample<S: Sampler>(&self, sampler: &S) -> Option<Token> {
+        let logits = self.logits.as_deref()?;
+        let transformed = sampler.apply(logits);
+        Some(sampler.sample(&transformed))
     }
 }
 
