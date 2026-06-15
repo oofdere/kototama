@@ -1,35 +1,29 @@
 use llama_sys::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Once;
 
-static BACKEND_HANDLES: AtomicUsize = AtomicUsize::new(0);
+static BACKEND_INIT: Once = Once::new();
 
-pub struct Backend();
+pub struct Backend;
 
 impl Backend {
     pub fn acquire() -> Backend {
-        if BACKEND_HANDLES.fetch_add(1, Ordering::SeqCst) == 0 {
+        BACKEND_INIT.call_once(|| {
             unsafe {
-                //ggml_log_set(Some(llama_log_callback), std::ptr::null_mut());
-                //llama_log_set(Some(llama_log_callback), std::ptr::null_mut());
                 ggml_backend_load_all();
                 llama_backend_init();
             }
-        }
-        Backend()
+        });
+        Backend
     }
 }
 
-impl Drop for Backend {
-    fn drop(&mut self) {
-        if BACKEND_HANDLES.fetch_sub(1, Ordering::SeqCst) == 1 {
-            println!("Freeing backend");
-            unsafe { llama_sys::llama_backend_free() };
-        }
-    }
-}
-
+/// # Safety
+///
+/// `msg` must be a valid, non-null, null-terminated C string for the
+/// duration of this call. This is guaranteed by the llama.cpp log callback
+/// contract.
 #[allow(non_upper_case_globals)]
-pub extern "C" fn llama_log_callback(
+pub unsafe extern "C" fn llama_log_callback(
     level: ggml_log_level,
     msg: *const std::os::raw::c_char,
     _user_data: *mut std::os::raw::c_void,

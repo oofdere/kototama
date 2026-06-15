@@ -16,9 +16,28 @@ fn acquire_twice_coexist() {
 
 #[test]
 fn acquire_drop_acquire() {
-    // Dropping all handles and re-acquiring should re-init cleanly
-    {
-        let _b = Backend::acquire();
-    }
+    let _b = Backend::acquire();
+    drop(_b);
     let _b2 = Backend::acquire();
+}
+
+#[test]
+fn concurrent_acquire_is_safe() {
+    // Stress test: many threads racing to acquire Backend handles.
+    // Before the fix (AtomicUsize ref-counting), this could trigger a race
+    // where one thread frees the backend while another re-initializes it.
+    // With std::sync::Once, initialization is synchronized and happens exactly
+    // once, eliminating the race.
+    let handles: Vec<_> = (0..16)
+        .map(|_| {
+            std::thread::spawn(|| {
+                let b = Backend::acquire();
+                std::hint::black_box(&b);
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().unwrap();
+    }
 }
