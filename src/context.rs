@@ -252,6 +252,7 @@ impl Handler<GetPerf> for ContextActor {
 
 struct ContextInner {
     actor: ActorRef<ContextActor>,
+    n_vocab: i32,
 }
 
 impl Drop for ContextInner {
@@ -275,6 +276,11 @@ impl Context {
         &self.inner.actor
     }
 
+    /// Vocabulary size of the underlying model (cached at `Context::new`).
+    pub fn n_vocab(&self) -> i32 {
+        self.inner.n_vocab
+    }
+
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
@@ -292,7 +298,7 @@ impl Context {
         let actor = actor_inner.start();
 
         Ok(Self {
-            inner: Arc::new(ContextInner { actor }),
+            inner: Arc::new(ContextInner { actor, n_vocab }),
         })
     }
 

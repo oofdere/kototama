@@ -33,6 +33,18 @@ impl Sequence {
     }
 
     pub fn push(&mut self, token: i32) {
+        // Bound-check the token against the model's vocabulary BEFORE crossing the
+        // FFI boundary. llama.cpp's `ggml_compute_forward_get_rows` asserts
+        // `0 <= id < ne01` (the embedding-table row count) and calls `ggml_abort`
+        // on violation, which terminates the process and bypasses Rust unwinding.
+        // On CUDA the kernel performs the lookup without any bounds check at all,
+        // so an out-of-range token reads OOB GPU memory — UB reachable from safe
+        // Rust.
+        let n_vocab = self.ctx.n_vocab();
+        assert!(
+            token >= 0 && token < n_vocab,
+            "Sequence::push: token {token} out of vocabulary range [0, {n_vocab})",
+        );
         let pos = self.tokens.len() as i32;
         self.logits = Some(
             self.ctx
