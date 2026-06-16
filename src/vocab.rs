@@ -43,29 +43,50 @@ impl Model {
         unsafe { llama_vocab_get_add_sep(self.vocab_ptr()) }
     }
 
+    /// True iff `token` is a valid index into this vocab (`0 <= token < n_tokens()`).
     #[inline]
-    pub fn get_attr(&self, token: i32) -> llama_token_attr {
-        unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
+    pub(crate) fn token_in_range(&self, token: i32) -> bool {
+        token >= 0 && token < self.n_tokens()
     }
 
     #[inline]
-    pub fn get_score(&self, token: i32) -> f32 {
-        unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
-    }
-
-    #[inline]
-    pub fn get_text(&self, token: i32) -> &CStr {
-        unsafe {
-            let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
-            CStr::from_ptr(ptr)
+    pub fn get_attr(&self, token: i32) -> Option<llama_token_attr> {
+        if !self.token_in_range(token) {
+            return None;
         }
+        Some(unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) })
+    }
+
+    #[inline]
+    pub fn get_score(&self, token: i32) -> Option<f32> {
+        if !self.token_in_range(token) {
+            return None;
+        }
+        Some(unsafe { llama_vocab_get_score(self.vocab_ptr(), token) })
+    }
+
+    #[inline]
+    pub fn get_text(&self, token: i32) -> Option<&CStr> {
+        if !self.token_in_range(token) {
+            return None;
+        }
+        let ptr = unsafe { llama_vocab_get_text(self.vocab_ptr(), token) };
+        if ptr.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(ptr) })
     }
 
     #[inline]
     pub fn is_control(&self, token: i32) -> bool {
+        if !self.token_in_range(token) {
+            return false;
+        }
         unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
     }
 
+    /// Safe for any `i32`. llama.cpp's `is_eog` is a `LLAMA_TOKEN_NULL` check
+    /// plus a set-membership lookup — it does not index `id_to_token`.
     #[inline]
     pub fn is_eog(&self, token: i32) -> bool {
         unsafe { llama_vocab_is_eog(self.vocab_ptr(), token) }

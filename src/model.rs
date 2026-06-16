@@ -168,6 +168,9 @@ impl Model {
     }
 
     pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
+        if !self.token_in_range(token) {
+            return Err(());
+        }
         let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
