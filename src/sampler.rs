@@ -23,20 +23,20 @@ pub trait Sampler {
         let (id, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .expect("cannot sample from empty logits");
 
         id as i32
     }
 
     fn sample_mut(&self, logits: &mut [f32]) -> Token {
         self.apply_mut(logits);
-        
+
         let (id, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .expect("cannot sample from empty logits");
 
         id as i32
     }
