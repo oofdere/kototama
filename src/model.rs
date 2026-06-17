@@ -186,30 +186,56 @@ impl Model {
     }
 
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
-        let len = -unsafe {
+        // llama.cpp's `llama_tokenize` takes the text length as an `int32_t`
+        // and then constructs `std::string(text, text_len)` from it. Truncating
+        // `text.len()` with `as i32` produces a negative value when the input
+        // exceeds `i32::MAX` bytes; that negative `int32_t` is then implicitly
+        // converted to the `size_t` overload of `std::string`'s constructor,
+        // which reads far past the end of `text` — UB reachable from safe Rust.
+        let text_len = i32::try_from(text.len())
+            .expect("Model::tokenize: text length exceeds i32::MAX");
+
+        // Probe with a zero-sized buffer. Per `llama.h`, this returns:
+        //   * 0 when the input produces no tokens,
+        //   * `-needed` when the buffer is too small (always the case here),
+        //   * `INT32_MIN` when the tokenization result would overflow `int32_t`.
+        let probe = unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
                 text.as_ptr() as *const i8,
-                text.len() as i32,
+                text_len,
                 std::ptr::null_mut(),
                 0,
                 add_special,
                 parse_special,
             )
         };
-        let mut tokens = vec![0i32; len as usize];
+        // Negating `INT32_MIN` overflows (`-i32::MIN` is unrepresentable),
+        // so peel it off as a distinct error case before doing the negation.
+        let needed = match probe {
+            0 => return Vec::new(),
+            i32::MIN => panic!(
+                "Model::tokenize: tokenization result exceeds i32::MAX (llama_tokenize returned INT32_MIN)"
+            ),
+            n if n < 0 => -n,
+            n => panic!("Model::tokenize: zero-buffer probe returned unexpected positive value {n}"),
+        };
+
+        let mut tokens = vec![0i32; needed as usize];
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
                 text.as_ptr() as *const i8,
-                text.len() as i32,
+                text_len,
                 tokens.as_mut_ptr(),
-                tokens.len() as i32,
+                needed,
                 add_special,
                 parse_special,
             )
         };
-        tokens.truncate(n_tokens as usize);
+        let n = usize::try_from(n_tokens)
+            .expect("Model::tokenize: second llama_tokenize call returned a negative error code");
+        tokens.truncate(n);
         tokens
     }
 }

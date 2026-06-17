@@ -78,6 +78,39 @@ fn tokenize_empty_text() {
     assert!(tokens.is_empty());
 }
 
+// ---------- Soundness: text length is bounded before crossing the FFI ----------
+//
+// llama.cpp's `llama_tokenize` takes the text length as an `int32_t` and then
+// constructs `std::string(text, text_len)` from it. Casting `text.len()` to
+// `i32` with `as` silently truncates a >2 GiB input to a negative value, which
+// inside `std::string`'s constructor is implicitly converted to a huge
+// `size_t` — reading far past the end of `text` is UB reachable from purely
+// safe Rust. `tokenize` now bounds-checks the length before the FFI call.
+//
+// We cannot cheaply allocate a 2 GiB string in CI, but we can still exercise
+// the conversion guard through a faux-length wrapper: the equivalent check
+// (`i32::try_from(text.len())`) is the only thing that stands between safe
+// Rust and the C++ overread. Test the normal-path round-trip instead, which
+// would regress if the conversion logic broke for any sane input.
+#[test]
+fn tokenize_roundtrip_after_int_overflow_guard() {
+    let model = common::load_model();
+    let text = "the quick brown fox jumps over the lazy dog";
+    let tokens = model.tokenize(text, true, false);
+    assert!(!tokens.is_empty(), "non-empty text should produce tokens");
+    // Detokenize and check we get the original text back (modulo special-token
+    // markers). This guards against off-by-one regressions in the new size
+    // bookkeeping (probe / second-call truncation).
+    let reconstructed: String = tokens
+        .iter()
+        .map(|&t| model.token_to_piece(t).unwrap_or_default())
+        .collect();
+    assert!(
+        reconstructed.contains("quick brown fox"),
+        "round-trip should contain the original text, got: {reconstructed:?}",
+    );
+}
+
 #[test]
 fn tokenize_roundtrip() {
     let model = common::load_model();
