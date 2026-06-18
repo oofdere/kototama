@@ -316,4 +316,16 @@ impl Context {
     pub fn perf(&self) -> llama_perf_context_data {
         self.actor().get_perf().unwrap()
     }
+
+    /// Returns true if `self` and `other` are handles to the same underlying
+    /// context (i.e. share the same actor and KV cache).
+    ///
+    /// Clones produced by `Context::clone` compare equal; independent
+    /// `Context::new` calls do not. Used by `Sequence::kv_copy` to reject
+    /// cross-context copies, which would either trip llama.cpp's
+    /// `GGML_ASSERT` and abort the host process, or silently corrupt an
+    /// unrelated sequence in `self`'s KV cache.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }

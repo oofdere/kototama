@@ -135,6 +135,17 @@ impl Sequence {
     }
 
     pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) {
+        // Seq IDs are only meaningful within the context that issued them.
+        // Forwarding `other.id` to `self.ctx`'s actor when `self.ctx` and
+        // `other.ctx` differ either corrupts an unrelated sequence in
+        // `self.ctx` (if `other.id` happens to fall inside `self.ctx`'s
+        // `n_seq_max`) or trips llama.cpp's `GGML_ASSERT(seq_id_dst < ...)`
+        // in `llama_kv_cache::seq_cp` and aborts the host process —
+        // bypassing Rust unwinding and `Drop`, reachable from safe code.
+        assert!(
+            self.ctx.ptr_eq(&other.ctx),
+            "Sequence::kv_copy: source and destination sequences must come from the same Context"
+        );
         self.ctx
             .actor()
             .memory_seq_cp(self.id, other.id, range.start, range.end)
