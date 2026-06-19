@@ -143,6 +143,15 @@ impl Sequence {
     }
 
     pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) {
+        // llama.cpp's `seq_add` aborts the process via GGML_ASSERT when the
+        // underlying memory does not support shift (MROPE/IMROPE models and
+        // STEP35 architecture). Convert that into a Rust panic so safe code
+        // can't abort the host.
+        assert!(
+            self.ctx.can_shift(),
+            "Sequence::kv_shift: this context's memory does not support shift; \
+             check Context::can_shift() before calling"
+        );
         self.ctx
             .actor()
             .memory_seq_add(self.id, range.start, range.end, delta)

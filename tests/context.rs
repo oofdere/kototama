@@ -71,6 +71,18 @@ fn can_shift_does_not_crash() {
 }
 
 #[test]
+fn can_shift_is_consistent_across_calls() {
+    // Cached at context creation — must return the same value every time and
+    // from every cloned handle.
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let first = ctx.can_shift();
+    assert_eq!(ctx.can_shift(), first);
+    let cloned = ctx.clone();
+    assert_eq!(cloned.can_shift(), first);
+}
+
+#[test]
 fn perf_does_not_crash() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();

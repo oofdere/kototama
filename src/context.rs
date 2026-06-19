@@ -252,6 +252,7 @@ impl Handler<GetPerf> for ContextActor {
 
 struct ContextInner {
     actor: ActorRef<ContextActor>,
+    can_shift: bool,
 }
 
 impl Drop for ContextInner {
@@ -290,9 +291,10 @@ impl Context {
             checked_out: vec![false; n_seq_max],
         };
         let actor = actor_inner.start();
+        let can_shift = actor.can_shift().unwrap();
 
         Ok(Self {
-            inner: Arc::new(ContextInner { actor }),
+            inner: Arc::new(ContextInner { actor, can_shift }),
         })
     }
 
@@ -309,8 +311,13 @@ impl Context {
         self.actor().get_n_ctx().unwrap()
     }
 
+    /// Whether this context's memory supports KV-shift (`Sequence::kv_shift`).
+    ///
+    /// Returns `false` for architectures llama.cpp does not implement shift for
+    /// (e.g. MROPE/IMROPE multimodal models and STEP35). Cached at context
+    /// creation since the underlying memory type cannot change.
     pub fn can_shift(&self) -> bool {
-        self.actor().can_shift().unwrap()
+        self.inner.can_shift
     }
 
     pub fn perf(&self) -> llama_perf_context_data {
