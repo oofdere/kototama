@@ -88,6 +88,26 @@ impl Sequence {
     }
 
     pub fn remove(&mut self, range: Range<usize>) -> bool {
+        // Validate the range against local `tokens` BEFORE crossing the FFI
+        // boundary. llama.cpp's `llama_memory_seq_rm` silently clips
+        // out-of-range positions, so without this guard a bogus range would
+        // mutate the KV cache and only then panic at `self.tokens.drain(range)`
+        // — leaving local `tokens` and the KV cache out of sync (and any
+        // subsequent `push()` would write to a position the KV cache already
+        // holds, silently corrupting attention).
+        let len = self.tokens.len();
+        assert!(
+            range.start <= range.end,
+            "Sequence::remove: range start {} > end {}",
+            range.start,
+            range.end,
+        );
+        assert!(
+            range.end <= len,
+            "Sequence::remove: range end {} exceeds sequence length {}",
+            range.end,
+            len,
+        );
         if self.kv_remove(range.start as i32..range.end as i32) {
             self.tokens.drain(range);
             self.logits = None;
@@ -98,6 +118,27 @@ impl Sequence {
     }
 
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
+        // Validate the range against local `tokens` BEFORE crossing the FFI
+        // boundary. Without this guard, `kv_copy` runs first (succeeds —
+        // llama.cpp clips silently), then `other.tokens.clear()` empties the
+        // destination, and only THEN `&self.tokens[range]` panics. The
+        // destination is left with empty `tokens` but `logits` still pointing
+        // at data unrelated to the cleared tokens — a subsequent `sample()`
+        // on `other` would sample from stale logits while the user reasonably
+        // assumes `other` is in a clean state.
+        let len = self.tokens.len();
+        assert!(
+            range.start <= range.end,
+            "Sequence::copy_to: range start {} > end {}",
+            range.start,
+            range.end,
+        );
+        assert!(
+            range.end <= len,
+            "Sequence::copy_to: range end {} exceeds sequence length {}",
+            range.end,
+            len,
+        );
         self.kv_copy(other, range.start as i32..range.end as i32);
         other.tokens.clear();
         other
