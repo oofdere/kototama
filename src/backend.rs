@@ -3,7 +3,22 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static BACKEND_HANDLES: AtomicUsize = AtomicUsize::new(0);
 
-pub struct Backend();
+/// RAII handle for the llama.cpp global backend.
+///
+/// Construct only via [`Backend::acquire`] — never directly. `acquire`
+/// increments a refcount that `Drop` decrements; if a `Backend` ever
+/// existed without a matching `acquire`, the refcount would underflow
+/// or trigger a premature `llama_backend_free` on real handles, causing
+/// use-after-free in subsequent llama API calls (or skipping backend
+/// initialization on the next `acquire`, which is UB).
+///
+/// The private `()` field seals the constructor at the type level so
+/// safe code outside this crate cannot bypass `acquire`:
+///
+/// ```compile_fail
+/// let _ = rusty_llama::Backend();
+/// ```
+pub struct Backend(());
 
 impl Backend {
     pub fn acquire() -> Backend {
@@ -15,7 +30,7 @@ impl Backend {
                 llama_backend_init();
             }
         }
-        Backend()
+        Backend(())
     }
 }
 
