@@ -49,6 +49,13 @@ impl Sequence {
     pub fn decode(&mut self) {
         if let Some(&last_token) = self.tokens.last() {
             let pos = (self.tokens.len() - 1) as i32;
+            // The position is still in the KV cache from the original push;
+            // llama_decode rejects duplicate positions with InvalidInput, so
+            // clear the slot before re-decoding into it.
+            self.ctx
+                .actor()
+                .memory_seq_rm(self.id, pos, pos + 1)
+                .unwrap();
             self.logits = Some(
                 self.ctx
                     .actor()
