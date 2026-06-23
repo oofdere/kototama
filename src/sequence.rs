@@ -135,6 +135,15 @@ impl Sequence {
     }
 
     pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) {
+        if self.id != other.id && !self.ctx.kv_unified() {
+            panic!(
+                "Sequence::kv_copy: copying between distinct sequences requires \
+                 ContextParams::kv_unified = true (this Context has kv_unified = false). \
+                 Without unified KV, llama.cpp's seq_cp asserts that the range covers \
+                 the full KV buffer and aborts the process otherwise; set kv_unified = \
+                 true on the ContextParams used to create this Context."
+            );
+        }
         self.ctx
             .actor()
             .memory_seq_cp(self.id, other.id, range.start, range.end)

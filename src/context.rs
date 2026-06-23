@@ -252,6 +252,7 @@ impl Handler<GetPerf> for ContextActor {
 
 struct ContextInner {
     actor: ActorRef<ContextActor>,
+    kv_unified: bool,
 }
 
 impl Drop for ContextInner {
@@ -292,8 +293,23 @@ impl Context {
         let actor = actor_inner.start();
 
         Ok(Self {
-            inner: Arc::new(ContextInner { actor }),
+            inner: Arc::new(ContextInner {
+                actor,
+                kv_unified: params.kv_unified,
+            }),
         })
+    }
+
+    /// Returns whether this context was created with `kv_unified = true`.
+    ///
+    /// When `false` (llama.cpp's default), each sequence lives in its own KV
+    /// stream. `llama_memory_seq_cp` between two different sequences then
+    /// requires the range to cover the full KV buffer; calling it on a
+    /// partial range fires a `GGML_ASSERT` and aborts the process. The safe
+    /// `Sequence::kv_copy` / `copy_to` / `copy_from` wrappers check this
+    /// flag and panic in Rust before crossing the FFI boundary.
+    pub fn kv_unified(&self) -> bool {
+        self.inner.kv_unified
     }
 
     pub fn sequence(&self) -> Option<crate::Sequence> {
