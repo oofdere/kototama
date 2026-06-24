@@ -276,6 +276,21 @@ impl Context {
     }
 
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        // `params.n_seq_max` is `u32`, but `llama_batch_init` (called by
+        // `Batch::init_token` below) takes the seq-max as `int32_t`. Casting
+        // `u32 -> i32` via `as` silently wraps for values > `i32::MAX`,
+        // producing a negative size that llama.cpp's batch allocator then
+        // multiplies by `sizeof(llama_seq_id)` — the int32 value is
+        // promoted to `size_t`, becoming an enormous number that wraps
+        // again under modular `size_t` arithmetic. The resulting
+        // allocations are either NULL (after which `common::batch_add`
+        // saves us via its null check) or successful but smaller than
+        // expected, after which `batch_add` writes past the buffer. Reject
+        // the input before crossing the FFI boundary so safe Rust cannot
+        // reach that state.
+        if params.n_seq_max > i32::MAX as u32 {
+            return Err(());
+        }
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());
