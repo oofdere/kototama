@@ -109,6 +109,14 @@ pub(crate) struct ContextActor {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    // SAFETY: the llama_context references both the underlying llama_model
+    // and the global llama backend. Holding a Model clone here keeps the
+    // model (and its Backend handle) alive for the actor's lifetime, so
+    // `ctx` remains valid even if the user drops every other Model clone.
+    // Field order matters: this is declared after the fields that need to
+    // run during llama_free, so the model (and backend) are released only
+    // after `Drop::drop` and the other field drops have completed.
+    _model: Model,
 }
 
 unsafe impl Send for ContextActor {}
@@ -288,6 +296,7 @@ impl Context {
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            _model: model.clone(),
         };
         let actor = actor_inner.start();
 

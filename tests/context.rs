@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::Context;
+use rusty_llama::{Context, Model, ModelParams};
 
 #[test]
 fn context_new_ok() {
@@ -151,6 +151,65 @@ fn context_from_cloned_model() {
         Context::new(&model_clone, &params).expect("context from cloned model should succeed");
     assert!(ctx.free_slots() > 0);
     assert!(ctx.n_ctx() >= params.n_ctx);
+}
+
+// ---------- Context keeps Model alive ----------
+//
+// Regression: Context::new used to take `&Model` without retaining the
+// handle. The llama_context internally references the model's data and
+// the global llama backend. If the user dropped every Model handle
+// after constructing a Context, the underlying llama_model (and
+// potentially the Backend) was freed while the context kept using it.
+
+#[test]
+fn context_keeps_model_alive_after_handles_dropped() {
+    // Use a fresh Model so dropping it actually releases it. The shared
+    // `load_model()` helper caches the Model in a OnceLock, so it would
+    // mask this regression.
+    let mut params = ModelParams::new();
+    params.n_gpu_layers = 0;
+    let model = Model::load_from_file(&common::model_path(), params).expect("load model");
+
+    let ctx_params = common::test_ctx_params();
+    let ctx = Context::new(&model, &ctx_params).expect("create context");
+
+    // Grab a known-valid token before dropping the model handle.
+    let tokens = model.tokenize("a", true, false);
+    let first_token = *tokens.first().expect("tokenize produced at least one token");
+
+    // Drop every Model handle in the user's scope. Before the fix this
+    // released the llama_model while the actor's *mut llama_context was
+    // still pointing into it.
+    drop(model);
+
+    // Use the context. Without the fix, the underlying llama_decode call
+    // dereferences the freed llama_model — typically a segfault under
+    // address sanitizer or simply garbage logits.
+    let mut seq = ctx.sequence().expect("checkout sequence");
+    seq.push(first_token);
+    assert!(seq.logits().is_some(), "logits should be available after push");
+}
+
+#[test]
+fn context_keeps_model_alive_across_clone() {
+    let mut params = ModelParams::new();
+    params.n_gpu_layers = 0;
+    let model = Model::load_from_file(&common::model_path(), params).expect("load model");
+
+    let ctx_params = common::test_ctx_params();
+    let ctx = Context::new(&model, &ctx_params).expect("create context");
+    let ctx_clone = ctx.clone();
+
+    let tokens = model.tokenize("a", true, false);
+    let first_token = *tokens.first().expect("tokenize produced at least one token");
+
+    drop(ctx);
+    drop(model);
+
+    // The remaining Context clone should still hold the model alive.
+    let mut seq = ctx_clone.sequence().expect("checkout sequence");
+    seq.push(first_token);
+    assert!(seq.logits().is_some());
 }
 
 #[test]
