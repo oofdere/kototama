@@ -29,11 +29,15 @@ impl Drop for Backend {
 }
 
 #[allow(non_upper_case_globals)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn llama_log_callback(
     level: ggml_log_level,
     msg: *const std::os::raw::c_char,
     _user_data: *mut std::os::raw::c_void,
 ) {
+    if msg.is_null() {
+        return;
+    }
     use std::ffi::CStr;
     let msg_str = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     match level {
