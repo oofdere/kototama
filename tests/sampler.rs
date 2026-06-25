@@ -1,105 +1,123 @@
-use rusty_llama::{Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{Dist, Greedy, MinP, Sampler, Temperature};
 
-// ---------- Sampler constructors ----------
+// ---------- Greedy ----------
 
 #[test]
-fn greedy_init() {
-    let _s = Sampler::greedy();
+fn greedy_picks_argmax() {
+    let mut g = Greedy::new();
+    let logits = [0.1, 0.9, 0.5, 0.2];
+    assert_eq!(g.sample(&logits), 1);
 }
 
 #[test]
-fn greedy_clone() {
-    let s = Sampler::greedy();
-    let _s2 = s.clone();
+fn greedy_tiebreak_is_last() {
+    // max_by returns the last maximum on ties — pin the behavior
+    let mut g = Greedy::new();
+    let logits = [5.0, 5.0, 5.0];
+    assert_eq!(g.sample(&logits), 2);
+}
+
+// ---------- Temperature ----------
+
+#[test]
+fn temperature_zero_is_identity() {
+    let mut t = Temperature::new(0.0);
+    let logits = [1.0, 3.0, 2.0];
+    let out = t.apply(&logits);
+    assert_eq!(out, logits);
 }
 
 #[test]
-fn dist_init() {
-    let _s = Sampler::dist(42);
+fn temperature_scales_logits() {
+    let mut t = Temperature::new(2.0);
+    let out = t.apply(&[1.0, 2.0, 4.0]);
+    assert!((out[0] - 0.5).abs() < 1e-6);
+    assert!((out[1] - 1.0).abs() < 1e-6);
+    assert!((out[2] - 2.0).abs() < 1e-6);
 }
 
 #[test]
-fn temp_init() {
-    let _s = Sampler::temp(0.8);
+fn temperature_preserves_argmax() {
+    let mut t = Temperature::new(0.8);
+    let logits = [0.1, 0.9, 0.5];
+    assert_eq!(t.sample(&logits), 1);
+}
+
+// ---------- MinP ----------
+
+#[test]
+fn min_p_masks_below_threshold() {
+    let mut m = MinP::new(0.5, 0);
+    let out = m.apply(&[4.0, 3.5, 3.0, 2.0]);
+    assert!(out[0].is_finite(), "max survives");
+    assert!(out[1].is_finite(), "3.5 >= thresh survives");
+    assert!(out[2].is_infinite() && out[2].is_sign_negative(), "3.0 masked");
+    assert!(out[3].is_infinite() && out[3].is_sign_negative(), "2.0 masked");
 }
 
 #[test]
-fn top_k_init() {
-    let _s = Sampler::top_k(40);
+fn min_p_min_keep_floor_forces_survivors() {
+    // p=0.01 alone would keep only the max; min_keep forces 4
+    let mut m = MinP::new(0.01, 4);
+    let out = m.apply(&[10.0, 5.0, 4.0, 1.0, 0.0]);
+    let finite = out.iter().filter(|x| x.is_finite()).count();
+    assert_eq!(finite, 4);
 }
 
 #[test]
-fn top_p_init() {
-    let _s = Sampler::top_p(0.95, 1);
+fn min_p_one_keeps_only_the_max() {
+    let mut m = MinP::new(1.0, 0);
+    let out = m.apply(&[1.0, 3.0, 3.0, 2.0]);
+    assert!(out[1].is_finite() && out[2].is_finite(), "max(es) survive");
+    assert!(out[0].is_infinite() && out[0].is_sign_negative());
+    assert!(out[3].is_infinite() && out[3].is_sign_negative());
+}
+
+// ---------- Dist ----------
+
+#[test]
+fn dist_returns_valid_token() {
+    let mut d = Dist::new(42);
+    let token = d.sample(&[0.1, 0.5, 0.3, 0.2]);
+    assert!((0..4).contains(&token));
 }
 
 #[test]
-fn min_p_init() {
-    let _s = Sampler::min_p(0.05, 1);
+fn dist_is_deterministic_for_same_seed() {
+    let logits = vec![1.0, 2.0, 0.5, 3.0, 1.5];
+    let mut a = Dist::new(99);
+    let mut b = Dist::new(99);
+    assert_eq!(a.sample(&logits), b.sample(&logits));
 }
 
 #[test]
-fn mirostat_v2_init() {
-    let _s = Sampler::mirostat_v2(42, 5.0, 0.1);
+fn dist_advances_state_across_calls() {
+    let logits = vec![1.0, 2.0, 0.5, 3.0, 1.5];
+    let mut d = Dist::new(7);
+    let distinct: std::collections::HashSet<i32> =
+        (0..10).map(|_| d.sample(&logits)).collect();
+    assert!(
+        distinct.len() > 1,
+        "RNG should advance, producing varied draws"
+    );
 }
 
 #[test]
-fn penalties_init() {
-    let _s = Sampler::penalties(64, 1.1, 0.0, 0.0);
+fn dist_never_picks_masked_tokens() {
+    let mut d = Dist::new(1);
+    let logits = vec![1.0, f32::NEG_INFINITY, f32::NEG_INFINITY, 0.5];
+    for _ in 0..20 {
+        let t = d.sample(&logits);
+        assert!(t == 0 || t == 3, "masked token {t} picked");
+    }
 }
 
-#[test]
-fn temp_ext_init() {
-    let _s = Sampler::temp_ext(0.8, 0.1, 1.0);
-}
+// ---------- name() ----------
 
 #[test]
-fn typical_init() {
-    let _s = Sampler::typical(0.9, 1);
-}
-
-#[test]
-fn xtc_init() {
-    let _s = Sampler::xtc(0.1, 0.1, 1, 42);
-}
-
-#[test]
-fn top_n_sigma_init() {
-    let _s = Sampler::top_n_sigma(1.0);
-}
-
-#[test]
-fn adaptive_p_init() {
-    let _s = Sampler::adaptive_p(0.1, 0.9, 42);
-}
-
-// ---------- SamplerChain ----------
-
-#[test]
-fn sampler_chain_new() {
-    let params = SamplerChainParams::new();
-    let _chain = SamplerChain::new(&params);
-}
-
-#[test]
-fn sampler_chain_add() {
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::top_k(40))
-        .add(Sampler::top_p(0.95, 1))
-        .add(Sampler::temp(0.8))
-        .add(Sampler::dist(42));
-    drop(chain);
-}
-
-#[test]
-fn sampler_chain_perf() {
-    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
-    let _perf = chain.perf();
-}
-
-#[test]
-fn sampler_chain_params_deref() {
-    let params = SamplerChainParams::new();
-    // Deref exposes the inner llama_sampler_chain_params — just check it's accessible
-    let _no_perf = params.no_perf;
+fn name_returns_short_type_name() {
+    assert_eq!(Temperature::new(1.0).name(), "Temperature");
+    assert_eq!(MinP::new(0.1, 1).name(), "MinP");
+    assert_eq!(Greedy::new().name(), "Greedy");
+    assert_eq!(Dist::new(0).name(), "Dist");
 }

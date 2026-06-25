@@ -39,9 +39,9 @@ fn main() {
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
 
     // initialize the samplers (applied manually: min_p -> temp -> dist)
-    let minp = MinP::new(0.05, 1);
-    let temp = Temperature::new(0.8);
-    let dist = Dist::new(llama_sys::LLAMA_DEFAULT_SEED as u64);
+    let mut minp = MinP::new(0.05, 1);
+    let mut temp = Temperature::new(0.8);
+    let mut dist = Dist::new(llama_sys::LLAMA_DEFAULT_SEED as u64);
 
     let mut messages: Vec<Message> = Vec::new();
     fn format(messages: &Vec<Message>) -> String {

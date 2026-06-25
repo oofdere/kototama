@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::{Context, Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{Context, Dist, Greedy, Sampler, Temperature};
 
 // ---------- Model error handling ----------
 
@@ -54,8 +54,8 @@ fn greedy_sample_matches_argmax() {
         }
     }
 
-    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
-    let sampled = seq.sample(&chain);
+    let mut greedy = Greedy::new();
+    let sampled = seq.sample(&mut greedy).unwrap();
 
     assert_eq!(
         sampled, argmax,
@@ -72,12 +72,11 @@ fn sample_with_temperature_does_not_crash() {
     let tokens = model.tokenize("hello", true, false);
     seq.extend(&tokens);
 
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::temp(0.8))
-        .add(Sampler::top_k(40))
-        .add(Sampler::top_p(0.95, 1))
-        .add(Sampler::dist(42));
-    let token = seq.sample(&chain);
+    let mut temp = Temperature::new(0.8);
+    let mut dist = Dist::new(42);
+    let logits = seq.logits().unwrap();
+    let l = temp.apply(logits);
+    let token = dist.sample(&l);
     assert!(token >= 0 && token < model.n_tokens());
 }
 

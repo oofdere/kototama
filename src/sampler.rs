@@ -1,7 +1,6 @@
 use crate::Token;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::cell::RefCell;
 
 pub trait Sampler {
     fn name(&self) -> &'static str {
@@ -9,15 +8,15 @@ pub trait Sampler {
         full_name.split("::").last().unwrap_or(full_name)
     }
 
-    fn apply(&self, logits: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, logits: &[f32]) -> Vec<f32> {
         let mut logits = logits.to_vec();
         self.apply_mut(&mut logits);
         logits
     }
 
-    fn apply_mut(&self, logits: &mut [f32]);
+    fn apply_mut(&mut self, logits: &mut [f32]);
 
-    fn sample(&self, logits: &[f32]) -> Token {
+    fn sample(&mut self, logits: &[f32]) -> Token {
         let mut logits = logits.to_vec();
         self.apply_mut(&mut logits);
         let (id, _) = logits
@@ -29,9 +28,9 @@ pub trait Sampler {
         id as i32
     }
 
-    fn sample_mut(&self, logits: &mut [f32]) -> Token {
+    fn sample_mut(&mut self, logits: &mut [f32]) -> Token {
         self.apply_mut(logits);
-        
+
         let (id, _) = logits
             .iter()
             .enumerate()
@@ -42,7 +41,7 @@ pub trait Sampler {
     }
 }
 
-pub struct Temperature{
+pub struct Temperature {
     pub temp: f32,
 }
 
@@ -53,7 +52,7 @@ impl Temperature {
 }
 
 impl Sampler for Temperature {
-    fn apply_mut(&self, logits: &mut [f32]) {
+    fn apply_mut(&mut self, logits: &mut [f32]) {
         if self.temp == 0.0 {
             return;
         }
@@ -78,7 +77,7 @@ impl MinP {
 }
 
 impl Sampler for MinP {
-    fn apply_mut(&self, logits: &mut [f32]) {
+    fn apply_mut(&mut self, logits: &mut [f32]) {
         if logits.len() <= self.min_keep {
             return;
         }
@@ -103,25 +102,25 @@ impl Sampler for MinP {
 }
 
 pub struct Dist {
-    rng: RefCell<StdRng>,
+    rng: StdRng,
 }
 
 impl Dist {
     pub fn new(seed: u64) -> Self {
         Self {
-            rng: RefCell::new(StdRng::seed_from_u64(seed)),
+            rng: StdRng::seed_from_u64(seed),
         }
     }
 }
 
 impl Sampler for Dist {
-    fn apply_mut(&self, _logits: &mut [f32]) {}
+    fn apply_mut(&mut self, _logits: &mut [f32]) {}
 
-    fn sample(&self, logits: &[f32]) -> Token {
+    fn sample(&mut self, logits: &[f32]) -> Token {
         let m = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let exps: Vec<f32> = logits.iter().map(|&l| (l - m).exp()).collect();
         let sum: f32 = exps.iter().copied().sum();
-        let r = self.rng.borrow_mut().random::<f32>() * sum;
+        let r = self.rng.random::<f32>() * sum;
         let mut acc = 0.0;
         for (id, &e) in exps.iter().enumerate() {
             acc += e;
@@ -131,4 +130,16 @@ impl Sampler for Dist {
         }
         (exps.len().saturating_sub(1)) as i32
     }
+}
+
+pub struct Greedy;
+
+impl Greedy {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Sampler for Greedy {
+    fn apply_mut(&mut self, _logits: &mut [f32]) {}
 }

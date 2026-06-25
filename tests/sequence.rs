@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::{Context, Sampler, SamplerChain, SamplerChainParams};
+use rusty_llama::{Context, Dist, Greedy, Sampler, Temperature};
 
 fn setup() -> (rusty_llama::Model, rusty_llama::ContextParams) {
     common::load_model_and_context()
@@ -280,8 +280,8 @@ fn sequence_sample_greedy_is_valid_token() {
     let tokens = model.tokenize("hello", false, false);
     seq.extend(&tokens);
 
-    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
-    let token = seq.sample(&chain);
+    let mut greedy = Greedy::new();
+    let token = seq.sample(&mut greedy).unwrap();
     assert!(
         token >= 0 && token < model.n_tokens(),
         "sampled token should be within vocab range"
@@ -305,8 +305,8 @@ fn sequence_sample_matches_argmax() {
         .map(|(i, _)| i as i32)
         .unwrap();
 
-    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
-    let sampled = seq.sample(&chain);
+    let mut greedy = Greedy::new();
+    let sampled = seq.sample(&mut greedy).unwrap();
 
     assert_eq!(
         sampled, argmax,
@@ -322,11 +322,11 @@ fn sequence_sample_with_temperature_in_vocab_range() {
     let tokens = model.tokenize("hello world", false, false);
     seq.extend(&tokens);
 
-    let chain = SamplerChain::new(&SamplerChainParams::new())
-        .add(Sampler::temp(0.8))
-        .add(Sampler::top_k(40))
-        .add(Sampler::dist(123));
-    let token = seq.sample(&chain);
+    let mut temp = Temperature::new(0.8);
+    let mut dist = Dist::new(123);
+    let logits = seq.logits().unwrap();
+    let l = temp.apply(logits);
+    let token = dist.sample(&l);
     assert!(
         token >= 0 && token < model.n_tokens(),
         "temperature-sampled token should be in vocab range"
@@ -342,10 +342,10 @@ fn sequence_sample_does_not_require_mut() {
     let tokens = model.tokenize("test", false, false);
     seq.extend(&tokens);
 
-    let chain = SamplerChain::new(&SamplerChainParams::new()).add(Sampler::greedy());
+    let mut greedy = Greedy::new();
 
-    // Both immutable borrows should coexist
+    // sample() takes &self on Sequence — verify it coexists with another shared borrow
     let _logits = seq.logits();
-    let token = seq.sample(&chain);
+    let token = seq.sample(&mut greedy).unwrap();
     assert!(token >= 0 && token < model.n_tokens());
 }
