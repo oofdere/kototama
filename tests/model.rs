@@ -65,6 +65,26 @@ fn not_recurrent() {
 }
 
 #[test]
+fn not_hybrid() {
+    let model = common::load_model();
+    assert!(
+        !model.is_hybrid(),
+        "TinyStories is a plain decoder-only model, not hybrid"
+    );
+}
+
+#[test]
+fn is_hybrid_consistent_across_clones() {
+    let model = common::load_model();
+    let cloned = model.clone();
+    assert_eq!(
+        model.is_hybrid(),
+        cloned.is_hybrid(),
+        "is_hybrid should agree across cloned Model handles"
+    );
+}
+
+#[test]
 fn tokenize_nonempty_text() {
     let model = common::load_model();
     let tokens = model.tokenize("hello world", true, false);
@@ -109,6 +129,20 @@ fn decoder_start_token_none_for_decoder_only() {
 fn chat_template_default() {
     let model = common::load_model();
     let _ = model.chat_template(None);
+}
+
+#[test]
+fn chat_template_unknown_name_returns_none() {
+    let model = common::load_model();
+    // An obviously-bogus template name should map to a null pointer from
+    // llama.cpp, which the wrapper must translate into None — not a panic
+    // or an empty string.
+    assert!(
+        model
+            .chat_template(Some("__definitely_not_a_real_template__"))
+            .is_none(),
+        "unknown template name should yield None"
+    );
 }
 
 // ---------- Clone (Arc-backed Model) ----------

@@ -51,6 +51,29 @@ fn get_add_bos() {
 }
 
 #[test]
+fn get_add_eos() {
+    let model = common::load_model();
+    // Just verify the call doesn't crash; value depends on model config
+    let _ = model.get_add_eos();
+}
+
+#[test]
+fn get_add_sep() {
+    let model = common::load_model();
+    // Just verify the call doesn't crash; value depends on model config
+    let _ = model.get_add_sep();
+}
+
+#[test]
+fn get_add_flags_stable_across_calls() {
+    // Vocab metadata is immutable after load — repeated reads must agree.
+    let model = common::load_model();
+    assert_eq!(model.get_add_bos(), model.get_add_bos());
+    assert_eq!(model.get_add_eos(), model.get_add_eos());
+    assert_eq!(model.get_add_sep(), model.get_add_sep());
+}
+
+#[test]
 fn get_score_bos() {
     let model = common::load_model();
     if let Some(bos) = model.bos_token() {
