@@ -33,7 +33,14 @@ impl Sequence {
     }
 
     pub fn push(&mut self, token: i32) {
-        let pos = self.tokens.len() as i32;
+        // `as i32` would silently wrap into llama.cpp's negative-sentinel range; reject explicitly.
+        let pos = i32::try_from(self.tokens.len()).unwrap_or_else(|_| {
+            panic!(
+                "Sequence::push: sequence length {} exceeds i32::MAX; \
+                 llama.cpp positions must fit in i32",
+                self.tokens.len(),
+            )
+        });
         self.logits = Some(
             self.ctx
                 .actor()
