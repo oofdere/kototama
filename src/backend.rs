@@ -28,13 +28,21 @@ impl Drop for Backend {
     }
 }
 
+/// # Safety
+///
+/// `msg` must be a valid, non-null, null-terminated C string for the
+/// duration of this call. This is guaranteed when used as a callback
+/// by llama.cpp / ggml.
 #[allow(non_upper_case_globals)]
-pub extern "C" fn llama_log_callback(
+pub unsafe extern "C" fn llama_log_callback(
     level: ggml_log_level,
     msg: *const std::os::raw::c_char,
     _user_data: *mut std::os::raw::c_void,
 ) {
     use std::ffi::CStr;
+    if msg.is_null() {
+        return;
+    }
     let msg_str = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     match level {
         ggml_log_level::GGML_LOG_LEVEL_ERROR => eprint!("[ERROR] {}", msg_str),
