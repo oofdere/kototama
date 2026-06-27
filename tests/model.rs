@@ -100,6 +100,22 @@ fn token_to_piece_bos() {
 }
 
 #[test]
+fn token_to_piece_negative_token_returns_err() {
+    let model = common::load_model();
+    assert!(model.token_to_piece(-1).is_err());
+    assert!(model.token_to_piece(i32::MIN).is_err());
+}
+
+#[test]
+fn token_to_piece_oob_token_returns_err() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(model.token_to_piece(n).is_err());
+    assert!(model.token_to_piece(n + 1).is_err());
+    assert!(model.token_to_piece(i32::MAX).is_err());
+}
+
+#[test]
 fn decoder_start_token_none_for_decoder_only() {
     let model = common::load_model();
     assert!(model.decoder_start_token().is_none());

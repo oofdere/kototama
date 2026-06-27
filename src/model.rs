@@ -168,6 +168,12 @@ impl Model {
     }
 
     pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
+        // llama_token_to_piece dereferences vocab.id_to_token[token] without
+        // bounds-checking; an out-of-range id is UB in release builds (and an
+        // abort via GGML_ASSERT in debug). Reject bad ids before the FFI call.
+        if token < 0 || token >= self.n_tokens() {
+            return Err(());
+        }
         let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
@@ -182,7 +188,8 @@ impl Model {
         if n < 0 {
             return Err(());
         }
-        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+        let written = (n as usize).min(buf.len());
+        Ok(String::from_utf8_lossy(&buf[..written]).to_string())
     }
 
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
