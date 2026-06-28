@@ -60,10 +60,22 @@ impl Sequence {
     }
 
     pub fn pop(&mut self) -> Option<i32> {
-        let len = self.tokens.len() as i32;
-        if len == 0 {
+        if self.tokens.is_empty() {
             return None;
         }
+        // `as i32` would silently wrap a `usize` length past `i32::MAX` into a
+        // negative `llama_pos`. llama.cpp's KV-cache APIs treat `-1` as the
+        // "from start / to end" sentinel, so a wrapped value silently targets
+        // a sentinel range instead of the trailing token — reachable from
+        // purely safe Rust via a sufficiently large sequence. Reject the
+        // conversion explicitly.
+        let len = i32::try_from(self.tokens.len()).unwrap_or_else(|_| {
+            panic!(
+                "Sequence::pop: sequence length {} exceeds i32::MAX; \
+                 llama.cpp positions must fit in i32",
+                self.tokens.len(),
+            )
+        });
         if self.kv_remove((len - 1)..len) {
             let token = self.tokens.pop();
             self.logits = None;
