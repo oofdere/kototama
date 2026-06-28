@@ -23,20 +23,20 @@ pub trait Sampler {
         let (id, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .expect("cannot sample from empty logits");
 
         id as i32
     }
 
     fn sample_mut(&self, logits: &mut [f32]) -> Token {
         self.apply_mut(logits);
-        
+
         let (id, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .expect("cannot sample from empty logits");
 
         id as i32
     }
@@ -118,8 +118,12 @@ impl Sampler for Dist {
     fn apply_mut(&self, _logits: &mut [f32]) {}
 
     fn sample(&self, logits: &[f32]) -> Token {
-        let m = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let exps: Vec<f32> = logits.iter().map(|&l| (l - m).exp()).collect();
+        let m = logits.iter().copied().fold(f32::NEG_INFINITY, |a, b| a.max(b));
+        let exps: Vec<f32> = if m.is_finite() {
+            logits.iter().map(|&l| (l - m).exp()).collect()
+        } else {
+            vec![1.0; logits.len()]
+        };
         let sum: f32 = exps.iter().copied().sum();
         let r = self.rng.borrow_mut().random::<f32>() * sum;
         let mut acc = 0.0;
