@@ -20,25 +20,22 @@ pub trait Sampler {
     fn sample(&self, logits: &[f32]) -> Token {
         let mut logits = logits.to_vec();
         self.apply_mut(&mut logits);
-        let (id, _) = logits
+        logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        id as i32
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(id, _)| id as i32)
+            .unwrap_or(0)
     }
 
     fn sample_mut(&self, logits: &mut [f32]) -> Token {
         self.apply_mut(logits);
-        
-        let (id, _) = logits
+        logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        id as i32
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(id, _)| id as i32)
+            .unwrap_or(0)
     }
 }
 
