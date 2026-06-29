@@ -48,7 +48,19 @@ impl Sequence {
     /// Useful after `pop()`, `remove()`, or other mutations that invalidate logits.
     pub fn decode(&mut self) {
         if let Some(&last_token) = self.tokens.last() {
-            let pos = (self.tokens.len() - 1) as i32;
+            // `as i32` would silently wrap a `usize` length past `i32::MAX` into a
+            // negative `llama_pos`. llama.cpp's KV-cache APIs treat negative
+            // positions as sentinels (e.g. `-1` = "from start / to end"), so a
+            // wrapped value would target a sentinel range or an arbitrary signed
+            // position instead of the actual trailing token — FFI UB reachable
+            // from purely safe Rust. Sister fix to #147 / #153 (push / pop).
+            let pos = i32::try_from(self.tokens.len() - 1).unwrap_or_else(|_| {
+                panic!(
+                    "Sequence::decode: sequence length {} exceeds i32::MAX + 1; \
+                     llama.cpp positions must fit in i32",
+                    self.tokens.len(),
+                )
+            });
             self.logits = Some(
                 self.ctx
                     .actor()
