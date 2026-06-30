@@ -1,4 +1,4 @@
-use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
+use crate::context::{context_protocol, ContextProtocol};
 use crate::{Context, Sampler, Token};
 use std::ops::{Index, Range};
 
@@ -152,8 +152,7 @@ impl Sequence {
 
     pub fn sample<S: Sampler>(&self, sampler: &S) -> Option<Token> {
         let logits = self.logits.as_deref()?;
-        let transformed = sampler.apply(logits);
-        Some(sampler.sample(&transformed))
+        Some(sampler.sample(logits))
     }
 }
 
