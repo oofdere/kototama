@@ -63,6 +63,15 @@ impl Model {
 
     #[inline]
     pub fn is_control(&self, token: i32) -> bool {
+        // llama_vocab_is_control dereferences vocab.id_to_token[id] with the
+        // unchecked `operator[]` (unlike llama_vocab_get_text/get_score/get_attr,
+        // which use `.at()`), so an out-of-range id is straight-up undefined
+        // behavior — memory corruption reachable from safe Rust. Reject invalid
+        // ids up front and report them as non-control, matching how llama.cpp's
+        // own `is_eog` handles LLAMA_TOKEN_NULL and out-of-range ids gracefully.
+        if token < 0 || token >= self.n_tokens() {
+            return false;
+        }
         unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
     }
 

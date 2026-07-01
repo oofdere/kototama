@@ -92,3 +92,28 @@ fn nl_token_optional() {
     // May or may not be present; just verify no crash
     let _ = model.nl_token();
 }
+
+// ---------- is_control bounds-check (FFI soundness) ----------
+//
+// llama.cpp's `llama_vocab_is_control` reads `id_to_token[id]` with
+// unchecked `operator[]`, so an out-of-range token id is undefined
+// behavior. `Model::is_control` used to hand the id straight to the FFI
+// call from a safe method, meaning any safe Rust code could trigger UB by
+// passing a negative or oversized token. The wrapper now rejects invalid
+// ids up front and reports them as non-control.
+
+#[test]
+fn is_control_negative_token_is_false() {
+    let model = common::load_model();
+    assert!(!model.is_control(-1));
+    assert!(!model.is_control(i32::MIN));
+}
+
+#[test]
+fn is_control_oob_token_is_false() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(!model.is_control(n));
+    assert!(!model.is_control(n + 1));
+    assert!(!model.is_control(i32::MAX));
+}
