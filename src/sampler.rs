@@ -23,7 +23,7 @@ pub trait Sampler {
         let (id, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .unwrap();
 
         id as i32
@@ -35,7 +35,7 @@ pub trait Sampler {
         let (id, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .unwrap();
 
         id as i32
