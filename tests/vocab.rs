@@ -92,3 +92,59 @@ fn nl_token_optional() {
     // May or may not be present; just verify no crash
     let _ = model.nl_token();
 }
+
+// ---------- Model::get_attr bounds-check (soundness) ----------
+//
+// llama.cpp's llama_vocab_get_attr uses std::vector::at() internally, which
+// throws std::out_of_range on OOB. A C++ exception unwinding through the
+// extern "C" boundary is UB per the Rust nomicon (aborts the process on
+// current Rust). Guard tokens outside [0, n_tokens()) in the Rust wrapper
+// and return LLAMA_TOKEN_ATTR_UNDEFINED — the sentinel llama.h defines for
+// "no attributes".
+
+#[test]
+fn get_attr_negative_token_is_undefined() {
+    let model = common::load_model();
+    assert_eq!(
+        model.get_attr(-1),
+        llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED,
+    );
+    assert_eq!(
+        model.get_attr(i32::MIN),
+        llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED,
+    );
+}
+
+#[test]
+fn get_attr_out_of_range_token_is_undefined() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert_eq!(
+        model.get_attr(n),
+        llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED,
+    );
+    assert_eq!(
+        model.get_attr(n + 1),
+        llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED,
+    );
+    assert_eq!(
+        model.get_attr(i32::MAX),
+        llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED,
+    );
+}
+
+#[test]
+fn get_attr_valid_token_still_calls_ffi() {
+    // Regression pin: the happy path is unchanged — a valid in-range token
+    // still crosses the FFI boundary and returns whatever attributes the
+    // vocab has for it. BOS is a "control" token in every real vocab, so it
+    // must not report as UNDEFINED.
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        assert_ne!(
+            model.get_attr(bos),
+            llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED,
+            "valid BOS token should have some attribute set",
+        );
+    }
+}

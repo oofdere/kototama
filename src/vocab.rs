@@ -45,6 +45,9 @@ impl Model {
 
     #[inline]
     pub fn get_attr(&self, token: i32) -> llama_token_attr {
+        if token < 0 || token >= self.n_tokens() {
+            return llama_token_attr::LLAMA_TOKEN_ATTR_UNDEFINED;
+        }
         unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
     }
 
