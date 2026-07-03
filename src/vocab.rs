@@ -55,6 +55,14 @@ impl Model {
 
     #[inline]
     pub fn get_text(&self, token: i32) -> &CStr {
+        // llama_vocab_get_text forwards to `id_to_token.at(id)` on the C++
+        // side, which throws `std::out_of_range` for an invalid id. Unwinding
+        // a C++ exception through the C ABI back into Rust is UB, reachable
+        // from safe code with a single `model.get_text(-1)`. Reject
+        // out-of-range ids up front and return an empty CStr.
+        if token < 0 || token >= self.n_tokens() {
+            return c"";
+        }
         unsafe {
             let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
             CStr::from_ptr(ptr)

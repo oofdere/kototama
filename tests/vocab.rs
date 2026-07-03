@@ -69,6 +69,24 @@ fn get_text_bos_nonempty() {
 }
 
 #[test]
+fn get_text_returns_empty_for_negative_token() {
+    let model = common::load_model();
+    // Without the bounds check, this would throw std::out_of_range from
+    // id_to_token.at(id) on the C++ side and unwind through the C ABI (UB).
+    assert!(model.get_text(-1).to_bytes().is_empty());
+    assert!(model.get_text(i32::MIN).to_bytes().is_empty());
+}
+
+#[test]
+fn get_text_returns_empty_for_oob_token() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(model.get_text(n).to_bytes().is_empty());
+    assert!(model.get_text(n + 1000).to_bytes().is_empty());
+    assert!(model.get_text(i32::MAX).to_bytes().is_empty());
+}
+
+#[test]
 fn is_eog_eos() {
     let model = common::load_model();
     if let Some(eos) = model.eos_token() {
