@@ -60,6 +60,36 @@ fn get_score_bos() {
 }
 
 #[test]
+fn get_score_negative_token_is_nan() {
+    let model = common::load_model();
+    assert!(model.get_score(-1).is_nan());
+    assert!(model.get_score(i32::MIN).is_nan());
+}
+
+#[test]
+fn get_score_out_of_range_token_is_nan() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(model.get_score(n).is_nan());
+    assert!(model.get_score(n + 1).is_nan());
+    assert!(model.get_score(i32::MAX).is_nan());
+}
+
+#[test]
+fn get_score_valid_token_still_calls_ffi() {
+    // Regression pin: the guard must not over-reject valid tokens —
+    // BOS is in range so its score must come from llama.cpp, not the sentinel.
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        let score = model.get_score(bos);
+        assert!(
+            !score.is_nan(),
+            "in-range token's score must not be the out-of-range sentinel"
+        );
+    }
+}
+
+#[test]
 fn get_text_bos_nonempty() {
     let model = common::load_model();
     if let Some(bos) = model.bos_token() {

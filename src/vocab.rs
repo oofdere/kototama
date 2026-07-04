@@ -50,6 +50,14 @@ impl Model {
 
     #[inline]
     pub fn get_score(&self, token: i32) -> f32 {
+        // llama.cpp implements this as `pimpl->id_to_token.at(id).score`.
+        // `.at()` throws `std::out_of_range` on OOB; unwinding a C++
+        // exception across the `extern "C"` boundary is UB. Reject
+        // out-of-range tokens before crossing the FFI boundary and
+        // surface it as NaN (which `f32::is_finite()` correctly rejects).
+        if token < 0 || token >= self.n_tokens() {
+            return f32::NAN;
+        }
         unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
     }
 
