@@ -28,8 +28,15 @@ impl Drop for Backend {
     }
 }
 
+/// # Safety
+///
+/// This is a C-ABI callback intended to be registered with
+/// `ggml_log_set` / `llama_log_set`. It dereferences `msg` as a
+/// NUL-terminated C string, so callers must uphold the contract of
+/// [`std::ffi::CStr::from_ptr`]: `msg` must be non-null and point to a
+/// valid, NUL-terminated string.
 #[allow(non_upper_case_globals)]
-pub extern "C" fn llama_log_callback(
+pub unsafe extern "C" fn llama_log_callback(
     level: ggml_log_level,
     msg: *const std::os::raw::c_char,
     _user_data: *mut std::os::raw::c_void,
