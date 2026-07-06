@@ -152,8 +152,7 @@ impl Sequence {
 
     pub fn sample<S: Sampler>(&self, sampler: &S) -> Option<Token> {
         let logits = self.logits.as_deref()?;
-        let transformed = sampler.apply(logits);
-        Some(sampler.sample(&transformed))
+        sampler.sample(logits)
     }
 }
 
