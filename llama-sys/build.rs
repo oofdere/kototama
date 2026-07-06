@@ -139,7 +139,22 @@ fn main() {
         .rustified_non_exhaustive_enum("llama_rope_scaling_type")
         .rustified_non_exhaustive_enum("llama_rope_type")
         .rustified_non_exhaustive_enum("llama_split_mode")
-        .rustified_non_exhaustive_enum("llama_token_attr")
+        // `llama_token_attr` is a bitflags enum on the C++ side. See
+        // `llama.cpp/src/llama-vocab.cpp`, where the vocab-init code stores
+        // combined values like `LLAMA_TOKEN_ATTR_NORMAL | LLAMA_TOKEN_ATTR_CONTROL`
+        // (== 12) — and `CONTROL | USER_DEFINED` (== 24), etc. — into
+        // `llama_token_attr` variables via `attr = (llama_token_attr)(attr | X)`.
+        // Those combined values are returned from `llama_vocab_get_attr` and
+        // are *not* declared variants of the C enum. If bindgen emits a
+        // `#[repr(u32)] enum` (which `rustified_non_exhaustive_enum` does),
+        // every observed value must match a declared discriminant; observing
+        // 12/20/24/... is immediate undefined behavior. That UB is reachable
+        // from purely safe Rust via `Model::get_attr(token)` in the wrapper
+        // crate. `bitfield_enum` instead emits a `#[repr(transparent)]`
+        // newtype `pub struct llama_token_attr(pub u32)` with associated
+        // constants and BitOr/BitAnd/etc. impls, so any `u32` bit pattern is
+        // a sound inhabitant of the type.
+        .bitfield_enum("llama_token_attr")
         .rustified_non_exhaustive_enum("llama_token_type")
         .rustified_non_exhaustive_enum("llama_vocab_type")
         .rustified_non_exhaustive_enum("ggml_op_pool")

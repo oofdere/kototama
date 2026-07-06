@@ -92,3 +92,49 @@ fn nl_token_optional() {
     // May or may not be present; just verify no crash
     let _ = model.nl_token();
 }
+
+// Regression: `llama_token_attr` is a C++ bitflags enum. llama.cpp stores
+// OR'd values like `NORMAL | CONTROL` (== 12) or `CONTROL | USER_DEFINED`
+// (== 24) into fields of that type and returns them from
+// `llama_vocab_get_attr`. If the Rust binding for `llama_token_attr` is a
+// `#[repr(u32)] enum`, observing any of those combined bit patterns at the
+// FFI boundary is instant UB — reachable from safe Rust via `get_attr`.
+// The build script binds `llama_token_attr` as a `bitfield_enum` (a
+// `#[repr(transparent)]` newtype over `u32`) so every `u32` value is a
+// sound inhabitant of the type.
+#[test]
+fn get_attr_iterates_full_vocab_without_ub() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(n > 0);
+    // Force the FFI to return every attribute value the model uses,
+    // including OR'd combinations. Under the old enum binding this loop
+    // was UB the moment the FFI produced a value like CONTROL | USER_DEFINED.
+    for t in 0..n {
+        let attr = model.get_attr(t);
+        // Round-trip through the raw bits; if this compiles and runs the
+        // binding is a newtype, not the unsound enum.
+        let _bits = attr.0;
+    }
+}
+
+#[test]
+fn get_attr_bos_has_control_bit() {
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        let attr = model.get_attr(bos);
+        // The BOS token in TinyStories is a control token. Test the CONTROL
+        // bit via bitwise-AND rather than equality — the C side is free to
+        // OR in other flags (e.g. SINGLE_WORD) alongside CONTROL, and an
+        // equality check would break for those combinations.
+        let control_bit =
+            llama_sys::llama_token_attr::LLAMA_TOKEN_ATTR_CONTROL.0;
+        assert_ne!(
+            attr.0 & control_bit,
+            0,
+            "BOS token attr 0x{:x} should have CONTROL bit 0x{:x} set",
+            attr.0,
+            control_bit
+        );
+    }
+}
