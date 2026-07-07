@@ -104,7 +104,15 @@ impl Model {
     }
 
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
-        let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
+        // A Rust `&str` is allowed to contain interior NUL bytes ('\0'); the
+        // previous `CString::new(s).unwrap()` turned that valid-Rust input into
+        // a panic reachable from a safe wrapper method. Fold the `NulError`
+        // into `None` — the name cannot be turned into a C string, so there is
+        // no matching chat template — so no safe caller can crash us here.
+        let name_cstr = match name {
+            Some(s) => Some(std::ffi::CString::new(s).ok()?),
+            None => None,
+        };
         let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
         let str = unsafe { llama_model_chat_template(self.inner.model, name_ptr) };
         if str.is_null() {

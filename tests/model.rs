@@ -111,6 +111,28 @@ fn chat_template_default() {
     let _ = model.chat_template(None);
 }
 
+// ---------- Soundness: safe callers cannot panic through chat_template ----------
+//
+// A Rust `&str` is allowed to contain interior NUL bytes ('\0'). The previous
+// implementation called `CString::new(name).unwrap()`, turning that valid-Rust
+// input into a panic reachable from purely safe code — a soundness gap in the
+// safe FFI wrapper. `chat_template` now folds `NulError` into `None`.
+
+#[test]
+fn chat_template_interior_nul_returns_none_not_panic() {
+    let model = common::load_model();
+    // "chatml\0malicious" is a legal Rust &str. Before the fix this call
+    // panicked in the safe wrapper; it must now return None cleanly.
+    assert!(model.chat_template(Some("chatml\0malicious")).is_none());
+}
+
+#[test]
+fn chat_template_pure_nul_returns_none_not_panic() {
+    let model = common::load_model();
+    // Leading-NUL is the minimum interior-NUL case. Must not panic.
+    assert!(model.chat_template(Some("\0")).is_none());
+}
+
 // ---------- Clone (Arc-backed Model) ----------
 
 #[test]
