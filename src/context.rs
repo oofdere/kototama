@@ -52,13 +52,6 @@ pub enum DecodeError {
     FatalError,
 }
 
-// -- Send-safe wrapper for raw sampler pointer --
-
-/// SAFETY: The pointer is only dereferenced inside the actor's handler
-/// while the caller is blocked on the synchronous request().
-pub(crate) struct SamplerPtr(pub *mut llama_sampler);
-unsafe impl Send for SamplerPtr {}
-
 // -- Protocol: defines what messages the actor handles --
 //
 // The #[protocol] macro generates:
@@ -78,7 +71,6 @@ pub(crate) trait ContextProtocol: Send + Sync {
         pos: llama_pos,
         seq_id: llama_seq_id,
     ) -> Response<Result<Vec<f32>, DecodeError>>;
-    fn sample_token(&self, sampler: SamplerPtr) -> Response<llama_token>;
     fn memory_seq_rm(&self, seq_id: llama_seq_id, p0: llama_pos, p1: llama_pos) -> Response<bool>;
     fn memory_seq_cp(
         &self,
@@ -185,12 +177,6 @@ impl Handler<PushToken> for ContextActor {
             .map_err(|_| DecodeError::InvalidInput)?;
         self.decode_batch()?;
         self.get_logits_ith(0).ok_or(DecodeError::FatalError)
-    }
-}
-
-impl Handler<SampleToken> for ContextActor {
-    fn handle(&mut self, msg: SampleToken, _ctx: &ActorContext<Self>) -> llama_token {
-        unsafe { llama_sampler_sample(msg.sampler.0, self.ctx, -1) }
     }
 }
 

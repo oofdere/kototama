@@ -1,4 +1,4 @@
-use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
+use crate::context::{context_protocol, ContextProtocol};
 use crate::{Context, Sampler, Token};
 use std::ops::{Index, Range};
 
