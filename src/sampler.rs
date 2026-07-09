@@ -3,6 +3,22 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 
+/// NaN-safe argmax over a logit slice.
+///
+/// Returns the index of the greatest logit, ignoring `NaN` entries and using
+/// `f32::total_cmp` (a total order) so that comparison never fails. If `logits`
+/// is empty or contains only `NaN` values, this falls back to token `0` rather
+/// than panicking.
+fn argmax(logits: &[f32]) -> Token {
+    logits
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !v.is_nan())
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(id, _)| id as Token)
+        .unwrap_or(0)
+}
+
 pub trait Sampler {
     fn name(&self) -> &'static str {
         let full_name = std::any::type_name::<Self>();
@@ -20,25 +36,12 @@ pub trait Sampler {
     fn sample(&self, logits: &[f32]) -> Token {
         let mut logits = logits.to_vec();
         self.apply_mut(&mut logits);
-        let (id, _) = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        id as i32
+        argmax(&logits)
     }
 
     fn sample_mut(&self, logits: &mut [f32]) -> Token {
         self.apply_mut(logits);
-        
-        let (id, _) = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        id as i32
+        argmax(logits)
     }
 }
 
