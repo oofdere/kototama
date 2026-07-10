@@ -88,7 +88,20 @@ impl Sequence {
     }
 
     pub fn remove(&mut self, range: Range<usize>) -> bool {
-        if self.kv_remove(range.start as i32..range.end as i32) {
+        let shifts_remaining_tokens = range.end < self.tokens.len();
+        if shifts_remaining_tokens && !self.ctx.can_shift() {
+            return false;
+        }
+
+        let p0 = range.start as i32;
+        let p1 = range.end as i32;
+        if self.kv_remove(p0..p1) {
+            if shifts_remaining_tokens {
+                self.ctx
+                    .actor()
+                    .memory_seq_add(self.id, p1, -1, p0 - p1)
+                    .unwrap();
+            }
             self.tokens.drain(range);
             self.logits = None;
             true
