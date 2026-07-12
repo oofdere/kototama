@@ -20,26 +20,32 @@ pub trait Sampler {
     fn sample(&self, logits: &[f32]) -> Token {
         let mut logits = logits.to_vec();
         self.apply_mut(&mut logits);
-        let (id, _) = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        id as i32
+        argmax(&logits)
     }
 
     fn sample_mut(&self, logits: &mut [f32]) -> Token {
         self.apply_mut(logits);
-        
-        let (id, _) = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        id as i32
+        argmax(logits)
     }
+}
+
+/// Index of the greatest logit, skipping `NaN` entries and falling back to
+/// token 0 when `logits` is empty or contains only `NaN`.
+///
+/// `partial_cmp` returns `None` for `NaN`, so the previous
+/// `max_by(partial_cmp().unwrap())` panicked on any `NaN` logit, and the
+/// trailing `unwrap()` panicked on an empty slice. Model logits can be `NaN`
+/// and are reachable through the public `Sequence::sample` API. `total_cmp`
+/// gives a total order but ranks `NaN` above every finite value, so `NaN`
+/// entries are filtered out first rather than being selected as the maximum.
+fn argmax(logits: &[f32]) -> Token {
+    logits
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| !l.is_nan())
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(id, _)| id as Token)
+        .unwrap_or(0)
 }
 
 pub struct Temperature{
