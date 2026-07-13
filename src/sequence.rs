@@ -99,6 +99,16 @@ impl Sequence {
 
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
         self.kv_copy(other, range.start as i32..range.end as i32);
+        // `kv_copy` preserves absolute KV positions, but `other`'s token vector
+        // is rebuilt as a fresh 0-indexed slice. Rebase the copied cells so that
+        // position == token index, preserving the invariant relied on by
+        // `push` (which decodes at `pos == tokens.len()`).
+        if range.start > 0 {
+            other.kv_shift(
+                range.start as i32..range.end as i32,
+                -(range.start as i32),
+            );
+        }
         other.tokens.clear();
         other
             .tokens
