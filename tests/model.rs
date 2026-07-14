@@ -99,6 +99,30 @@ fn token_to_piece_bos() {
     }
 }
 
+// Regression: `token_to_piece` used a fixed 64-byte buffer and returned `Err`
+// (silently dropping the piece) for any token whose detokenized form was longer.
+// The bundled TinyStories vocab has at least one such token (a >64-byte piece),
+// so before the fix this scan reported failures and never observed a long piece.
+#[test]
+fn token_to_piece_handles_pieces_longer_than_64_bytes() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+
+    let mut max_len = 0usize;
+    for token in 0..n {
+        let piece = model
+            .token_to_piece(token)
+            .unwrap_or_else(|_| panic!("token_to_piece({token}) should not fail for a valid token"));
+        max_len = max_len.max(piece.len());
+    }
+
+    assert!(
+        max_len > 64,
+        "expected at least one token piece longer than the 64-byte fast-path \
+         buffer (got max {max_len}); the buffer-resize path is untested otherwise"
+    );
+}
+
 #[test]
 fn decoder_start_token_none_for_decoder_only() {
     let model = common::load_model();

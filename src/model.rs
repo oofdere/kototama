@@ -168,13 +168,32 @@ impl Model {
     }
 
     pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
-        let mut buf = [0u8; 64];
+        // Fast path: most pieces fit in a small stack buffer.
+        let mut stack = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
                 self.inner.vocab,
                 token,
-                buf.as_mut_ptr() as *mut i8,
-                buf.len() as i32,
+                stack.as_mut_ptr() as *mut i8,
+                stack.len() as i32,
+                0,
+                true,
+            )
+        };
+        if n >= 0 {
+            return Ok(String::from_utf8_lossy(&stack[..n as usize]).to_string());
+        }
+
+        // llama_token_to_piece returns `-needed` when the buffer is too small.
+        // Retry with an exactly-sized heap buffer instead of dropping the piece.
+        let needed = n.unsigned_abs() as usize;
+        let mut heap = vec![0u8; needed];
+        let n = unsafe {
+            llama_sys::llama_token_to_piece(
+                self.inner.vocab,
+                token,
+                heap.as_mut_ptr() as *mut i8,
+                heap.len() as i32,
                 0,
                 true,
             )
@@ -182,7 +201,7 @@ impl Model {
         if n < 0 {
             return Err(());
         }
-        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+        Ok(String::from_utf8_lossy(&heap[..n as usize]).to_string())
     }
 
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
