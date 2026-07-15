@@ -98,6 +98,7 @@ impl Sequence {
     }
 
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
+        let _ = other.kv_remove(-1..-1);
         self.kv_copy(other, range.start as i32..range.end as i32);
         other.tokens.clear();
         other
