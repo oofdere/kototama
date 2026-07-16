@@ -15,11 +15,8 @@ pub use backend::*;
 mod context;
 pub use context::{Context, ContextParams, DecodeError};
 
-mod sampler;
-pub use sampler::*;
-
-mod sampler_chain;
-pub use sampler_chain::*;
+mod samplers;
+pub use samplers::*;
 
 mod vocab;
 
