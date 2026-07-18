@@ -20,6 +20,10 @@ impl Dist {
 impl Sampler for Dist {
     fn apply_mut(&mut self, _logits: &mut [f32]) {}
 
+    fn sample_mut(&mut self, logits: &mut [f32]) -> Token {
+        self.sample(logits)
+    }
+
     fn sample(&mut self, logits: &[f32]) -> Token {
         let m = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let exps: Vec<f32> = logits.iter().map(|&l| (l - m).exp()).collect();
