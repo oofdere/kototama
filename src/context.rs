@@ -488,6 +488,31 @@ pub struct Context {
     inner: Arc<ContextInner>,
 }
 
+pin_project_lite::pin_project! {
+    pub struct CheckoutFuture<F> {
+        #[pin]
+        inner: F,
+        guard: Option<CheckoutGuard>,
+    }
+}
+
+impl<F: Future<Output = Option<crate::Sequence>>> Future for CheckoutFuture<F> {
+    type Output = Option<crate::Sequence>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let this = self.project();
+        match this.inner.poll(cx) {
+            std::task::Poll::Ready(val) => {
+                if let Some(mut guard) = this.guard.take() {
+                    guard.commit();
+                }
+                std::task::Poll::Ready(val)
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
 struct CheckoutGuard {
     context: Context,
     request_id: u64,
@@ -817,19 +842,21 @@ impl Context {
 
     pub fn sequence_async(&self) -> impl Future<Output = Option<crate::Sequence>> + Send + 'static {
         let request_id = self.next_checkout_id();
-        let mut guard = CheckoutGuard::new(self.clone(), request_id);
+        let guard = Some(CheckoutGuard::new(self.clone(), request_id));
         let receiver = self.submit(|reply| Command::CheckoutSeq { request_id, reply });
         let context = self.clone();
 
-        async move {
-            let reservation = receiver
-                .expect("context worker stopped")
-                .await
-                .map_err(|_| ContextError::WorkerStopped)
-                .and_then(|result| result)
-                .expect("context worker stopped");
-            guard.commit();
-            reservation.map(|reservation| crate::Sequence::new(context, reservation))
+        CheckoutFuture {
+            inner: async move {
+                let reservation = receiver
+                    .expect("context worker stopped")
+                    .await
+                    .map_err(|_| ContextError::WorkerStopped)
+                    .and_then(|result| result)
+                    .expect("context worker stopped");
+                reservation.map(|reservation| crate::Sequence::new(context, reservation))
+            },
+            guard,
         }
     }
 
