@@ -1,18 +1,13 @@
 use llama_sys::*;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
 
-use spawned_concurrency::protocol;
-use spawned_concurrency::threads::{Actor, ActorRef, ActorStart, Context as ActorContext, Handler};
-use spawned_concurrency::Response;
-
-use crate::{common, Batch, Model};
-
-// -- Params --
+use crate::{common, Batch, Model, Token};
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct ContextParams(llama_context_params);
+pub struct ContextParams(pub(crate) llama_context_params);
 
 impl ContextParams {
     pub fn new() -> Self {
@@ -42,8 +37,6 @@ impl DerefMut for ContextParams {
     }
 }
 
-// -- Error type --
-
 #[derive(Debug, Clone)]
 pub enum DecodeError {
     SlotNotFound,
@@ -52,75 +45,150 @@ pub enum DecodeError {
     FatalError,
 }
 
-// -- Send-safe wrapper for raw sampler pointer --
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextError {
+    WorkerStopped,
+}
 
-/// SAFETY: The pointer is only dereferenced inside the actor's handler
-/// while the caller is blocked on the synchronous request().
-pub(crate) struct SamplerPtr(pub *mut llama_sampler);
-unsafe impl Send for SamplerPtr {}
+pub(crate) struct SequenceSnapshot {
+    pub tokens: Arc<[Token]>,
+    pub logits: Option<Arc<[f32]>>,
+}
 
-// -- Protocol: defines what messages the actor handles --
-//
-// The #[protocol] macro generates:
-//   - A message struct per method (e.g. checkout_seq -> CheckoutSeq)
-//   - impl Message for each struct
-//   - A blanket impl of ContextProtocol for any ActorRef<A> that handles all messages
-//
-// All generated types live in the `context_protocol` module.
+impl SequenceSnapshot {
+    fn empty() -> Self {
+        Self {
+            tokens: Arc::from([]),
+            logits: None,
+        }
+    }
+}
 
-#[protocol]
-pub(crate) trait ContextProtocol: Send + Sync {
-    fn checkout_seq(&self) -> Response<Option<llama_seq_id>>;
-    fn release_seq(&self, seq_id: llama_seq_id) -> Response<()>;
-    fn push_token(
-        &self,
-        token: llama_token,
-        pos: llama_pos,
+pub(crate) type SharedSequenceSnapshot = Arc<Mutex<SequenceSnapshot>>;
+
+type Reply<T> = oneshot::Sender<Result<T, ContextError>>;
+
+enum Command {
+    CheckoutSeq {
+        reply: Reply<Option<(llama_seq_id, SharedSequenceSnapshot)>>,
+    },
+    ReleaseSeq {
         seq_id: llama_seq_id,
-    ) -> Response<Result<Vec<f32>, DecodeError>>;
-    fn sample_token(&self, sampler: SamplerPtr) -> Response<llama_token>;
-    fn memory_seq_rm(&self, seq_id: llama_seq_id, p0: llama_pos, p1: llama_pos) -> Response<bool>;
-    fn memory_seq_cp(
-        &self,
+    },
+    PushToken {
+        token: llama_token,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+        reply: Reply<Result<Arc<[f32]>, DecodeError>>,
+    },
+    DecodeLast {
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+        reply: Reply<Result<Option<Arc<[f32]>>, DecodeError>>,
+    },
+    Pop {
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+        reply: Reply<Option<llama_token>>,
+    },
+    Remove {
+        seq_id: llama_seq_id,
+        start: llama_pos,
+        end: llama_pos,
+        snapshot: SharedSequenceSnapshot,
+        reply: Reply<bool>,
+    },
+    Copy {
         src: llama_seq_id,
         dst: llama_seq_id,
+        start: llama_pos,
+        end: llama_pos,
+        src_snapshot: SharedSequenceSnapshot,
+        dst_snapshot: SharedSequenceSnapshot,
+        reply: Reply<()>,
+    },
+    MemorySeqRm {
+        seq_id: llama_seq_id,
         p0: llama_pos,
         p1: llama_pos,
-    ) -> Response<()>;
-    fn memory_seq_add(
-        &self,
+        snapshot: SharedSequenceSnapshot,
+        reply: Reply<bool>,
+    },
+    MemorySeqAdd {
         seq_id: llama_seq_id,
         p0: llama_pos,
         p1: llama_pos,
         delta: llama_pos,
-    ) -> Response<()>;
-    fn memory_seq_pos_min(&self, seq_id: llama_seq_id) -> Response<llama_pos>;
-    fn memory_seq_pos_max(&self, seq_id: llama_seq_id) -> Response<llama_pos>;
-    fn get_n_ctx(&self) -> Response<u32>;
-    fn can_shift(&self) -> Response<bool>;
-    fn free_slots(&self) -> Response<usize>;
-    fn get_perf(&self) -> Response<llama_perf_context_data>;
+        snapshot: SharedSequenceSnapshot,
+        reply: Reply<()>,
+    },
+    MemorySeqPosMin {
+        seq_id: llama_seq_id,
+        reply: Reply<llama_pos>,
+    },
+    MemorySeqPosMax {
+        seq_id: llama_seq_id,
+        reply: Reply<llama_pos>,
+    },
+    GetNCtx {
+        reply: Reply<u32>,
+    },
+    CanShift {
+        reply: Reply<bool>,
+    },
+    FreeSlots {
+        reply: Reply<usize>,
+    },
+    GetPerf {
+        reply: Reply<llama_perf_context_data>,
+    },
+    Shutdown,
 }
 
-// -- The Actor --
+struct WorkerInit {
+    model: Model,
+    params: ContextParams,
+}
 
-pub(crate) struct ContextActor {
+// SAFETY: the worker is the sole owner of the copied parameter struct after
+// Context::new returns. This preserves the existing parameter API contract while
+// ensuring the native context itself is created, used, and destroyed on one OS
+// thread.
+unsafe impl Send for WorkerInit {}
+
+struct Worker {
     ctx: *mut llama_context,
+    _model: Model,
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
 }
 
-unsafe impl Send for ContextActor {}
+impl Worker {
+    fn new(init: WorkerInit) -> Result<Self, ()> {
+        let ctx = unsafe { llama_init_from_model(init.model.as_mut_ptr(), init.params.0) };
+        if ctx.is_null() {
+            return Err(());
+        }
 
-impl ContextActor {
+        let n_seq_max = init.params.n_seq_max as usize;
+        let n_vocab = init.model.n_tokens();
+
+        Ok(Self {
+            ctx,
+            _model: init.model,
+            batch: Batch::init_token(1, init.params.n_seq_max as i32),
+            n_vocab,
+            checked_out: vec![false; n_seq_max],
+        })
+    }
+
     fn get_memory(&self) -> llama_memory_t {
         unsafe { llama_get_memory(self.ctx) }
     }
 
     fn decode_batch(&mut self) -> Result<(), DecodeError> {
-        let result = unsafe { llama_decode(self.ctx, *self.batch) };
-        match result {
+        match unsafe { llama_decode(self.ctx, *self.batch) } {
             0 => Ok(()),
             1 => Err(DecodeError::SlotNotFound),
             2 => Err(DecodeError::Aborted),
@@ -129,191 +197,594 @@ impl ContextActor {
         }
     }
 
-    fn get_logits_ith(&self, idx: i32) -> Option<Vec<f32>> {
+    fn get_logits_ith(&self, idx: i32) -> Option<Arc<[f32]>> {
         let ptr = unsafe { llama_get_logits_ith(self.ctx, idx) };
-        if ptr.is_null() {
+        if ptr.is_null() || self.n_vocab <= 0 {
             return None;
         }
-        if self.n_vocab <= 0 {
-            return None;
+
+        Some(Arc::from(
+            unsafe { std::slice::from_raw_parts(ptr, self.n_vocab as usize) }.to_vec(),
+        ))
+    }
+
+    fn push_token(
+        &mut self,
+        token: llama_token,
+        pos: llama_pos,
+        seq_id: llama_seq_id,
+    ) -> Result<Arc<[f32]>, DecodeError> {
+        common::batch_clear(&mut self.batch);
+        common::batch_add(&mut self.batch, token, pos, &[seq_id], true)
+            .map_err(|_| DecodeError::InvalidInput)?;
+        self.decode_batch()?;
+        self.get_logits_ith(0).ok_or(DecodeError::FatalError)
+    }
+
+    fn run(mut self, commands: mpsc::Receiver<Command>) {
+        while let Ok(command) = commands.recv() {
+            match command {
+                Command::CheckoutSeq { reply } => {
+                    let result = self
+                        .checked_out
+                        .iter_mut()
+                        .enumerate()
+                        .find(|(_, used)| !**used)
+                        .map(|(id, used)| {
+                            *used = true;
+                            (
+                                id as llama_seq_id,
+                                Arc::new(Mutex::new(SequenceSnapshot::empty())),
+                            )
+                        });
+                    let _ = reply.send(Ok(result));
+                }
+                Command::ReleaseSeq { seq_id } => {
+                    unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, -1, -1) };
+                    if let Some(slot) = self.checked_out.get_mut(seq_id as usize) {
+                        *slot = false;
+                    }
+                }
+                Command::PushToken {
+                    token,
+                    seq_id,
+                    snapshot,
+                    reply,
+                } => {
+                    let pos = snapshot.lock().unwrap().tokens.len() as llama_pos;
+                    let result = self.push_token(token, pos, seq_id);
+                    if let Ok(logits) = &result {
+                        let mut state = snapshot.lock().unwrap();
+                        let mut tokens = state.tokens.to_vec();
+                        tokens.push(token);
+                        state.tokens = Arc::from(tokens);
+                        state.logits = Some(logits.clone());
+                    }
+                    let _ = reply.send(Ok(result));
+                }
+                Command::DecodeLast {
+                    seq_id,
+                    snapshot,
+                    reply,
+                } => {
+                    let last = {
+                        let state = snapshot.lock().unwrap();
+                        state
+                            .tokens
+                            .last()
+                            .copied()
+                            .map(|token| (token, (state.tokens.len() - 1) as llama_pos))
+                    };
+                    let result = match last {
+                        Some((token, pos)) => self.push_token(token, pos, seq_id).map(Some),
+                        None => Ok(None),
+                    };
+                    if let Ok(Some(logits)) = &result {
+                        snapshot.lock().unwrap().logits = Some(logits.clone());
+                    }
+                    let _ = reply.send(Ok(result));
+                }
+                Command::Pop {
+                    seq_id,
+                    snapshot,
+                    reply,
+                } => {
+                    let len = snapshot.lock().unwrap().tokens.len();
+                    let result = if len == 0 {
+                        None
+                    } else {
+                        let start = (len - 1) as llama_pos;
+                        let ok = unsafe {
+                            llama_memory_seq_rm(self.get_memory(), seq_id, start, len as i32)
+                        };
+                        if ok {
+                            let mut state = snapshot.lock().unwrap();
+                            let mut tokens = state.tokens.to_vec();
+                            let token = tokens.pop();
+                            state.tokens = Arc::from(tokens);
+                            state.logits = None;
+                            token
+                        } else {
+                            None
+                        }
+                    };
+                    let _ = reply.send(Ok(result));
+                }
+                Command::Remove {
+                    seq_id,
+                    start,
+                    end,
+                    snapshot,
+                    reply,
+                } => {
+                    let len = snapshot.lock().unwrap().tokens.len();
+                    let valid = start >= 0 && end >= start && (end as usize) <= len;
+                    let ok = valid
+                        && unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, start, end) };
+                    if ok {
+                        let removed = end - start;
+                        if removed > 0 && (end as usize) < len {
+                            unsafe {
+                                llama_memory_seq_add(
+                                    self.get_memory(),
+                                    seq_id,
+                                    end,
+                                    -1,
+                                    -removed,
+                                )
+                            };
+                        }
+
+                        let mut state = snapshot.lock().unwrap();
+                        let mut tokens = state.tokens.to_vec();
+                        tokens.drain(start as usize..end as usize);
+                        state.tokens = Arc::from(tokens);
+                        state.logits = None;
+                    }
+                    let _ = reply.send(Ok(ok));
+                }
+                Command::Copy {
+                    src,
+                    dst,
+                    start,
+                    end,
+                    src_snapshot,
+                    dst_snapshot,
+                    reply,
+                } => {
+                    let src_tokens = src_snapshot.lock().unwrap().tokens.clone();
+                    let valid = start >= 0 && end >= start && (end as usize) <= src_tokens.len();
+                    if valid {
+                        unsafe {
+                            llama_memory_seq_rm(self.get_memory(), dst, -1, -1);
+                            llama_memory_seq_cp(self.get_memory(), src, dst, start, end);
+                            if start > 0 {
+                                llama_memory_seq_add(
+                                    self.get_memory(),
+                                    dst,
+                                    start,
+                                    end,
+                                    -start,
+                                );
+                            }
+                        }
+                        let mut dst_state = dst_snapshot.lock().unwrap();
+                        dst_state.tokens =
+                            Arc::from(src_tokens[start as usize..end as usize].to_vec());
+                        dst_state.logits = None;
+                    }
+                    let _ = reply.send(Ok(()));
+                }
+                Command::MemorySeqRm {
+                    seq_id,
+                    p0,
+                    p1,
+                    snapshot,
+                    reply,
+                } => {
+                    let ok = unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, p0, p1) };
+                    if ok {
+                        snapshot.lock().unwrap().logits = None;
+                    }
+                    let _ = reply.send(Ok(ok));
+                }
+                Command::MemorySeqAdd {
+                    seq_id,
+                    p0,
+                    p1,
+                    delta,
+                    snapshot,
+                    reply,
+                } => {
+                    unsafe { llama_memory_seq_add(self.get_memory(), seq_id, p0, p1, delta) };
+                    snapshot.lock().unwrap().logits = None;
+                    let _ = reply.send(Ok(()));
+                }
+                Command::MemorySeqPosMin { seq_id, reply } => {
+                    let value = unsafe { llama_memory_seq_pos_min(self.get_memory(), seq_id) };
+                    let _ = reply.send(Ok(value));
+                }
+                Command::MemorySeqPosMax { seq_id, reply } => {
+                    let value = unsafe { llama_memory_seq_pos_max(self.get_memory(), seq_id) };
+                    let _ = reply.send(Ok(value));
+                }
+                Command::GetNCtx { reply } => {
+                    let _ = reply.send(Ok(unsafe { llama_n_ctx(self.ctx) }));
+                }
+                Command::CanShift { reply } => {
+                    let _ = reply.send(Ok(unsafe { llama_memory_can_shift(self.get_memory()) }));
+                }
+                Command::FreeSlots { reply } => {
+                    let free = self.checked_out.iter().filter(|&&used| !used).count();
+                    let _ = reply.send(Ok(free));
+                }
+                Command::GetPerf { reply } => {
+                    let _ = reply.send(Ok(unsafe { llama_perf_context(self.ctx) }));
+                }
+                Command::Shutdown => break,
+            }
         }
-        Some(unsafe { std::slice::from_raw_parts(ptr, self.n_vocab as usize) }.to_vec())
     }
 }
 
-impl Actor for ContextActor {}
-
-impl Drop for ContextActor {
+impl Drop for Worker {
     fn drop(&mut self) {
         unsafe { llama_free(self.ctx) };
     }
 }
 
-// -- Handlers: one per protocol method --
-
-use context_protocol::*;
-
-impl Handler<CheckoutSeq> for ContextActor {
-    fn handle(&mut self, _msg: CheckoutSeq, _ctx: &ActorContext<Self>) -> Option<llama_seq_id> {
-        for (i, slot) in self.checked_out.iter_mut().enumerate() {
-            if !*slot {
-                *slot = true;
-                return Some(i as llama_seq_id);
-            }
-        }
-        None
-    }
-}
-
-impl Handler<ReleaseSeq> for ContextActor {
-    fn handle(&mut self, msg: ReleaseSeq, _ctx: &ActorContext<Self>) {
-        unsafe { llama_memory_seq_rm(self.get_memory(), msg.seq_id, -1, -1) };
-        if let Some(slot) = self.checked_out.get_mut(msg.seq_id as usize) {
-            *slot = false;
-        }
-    }
-}
-
-impl Handler<PushToken> for ContextActor {
-    fn handle(
-        &mut self,
-        msg: PushToken,
-        _ctx: &ActorContext<Self>,
-    ) -> Result<Vec<f32>, DecodeError> {
-        common::batch_clear(&mut self.batch);
-        common::batch_add(&mut self.batch, msg.token, msg.pos, &[msg.seq_id], true)
-            .map_err(|_| DecodeError::InvalidInput)?;
-        self.decode_batch()?;
-        self.get_logits_ith(0).ok_or(DecodeError::FatalError)
-    }
-}
-
-impl Handler<SampleToken> for ContextActor {
-    fn handle(&mut self, msg: SampleToken, _ctx: &ActorContext<Self>) -> llama_token {
-        unsafe { llama_sampler_sample(msg.sampler.0, self.ctx, -1) }
-    }
-}
-
-impl Handler<MemorySeqRm> for ContextActor {
-    fn handle(&mut self, msg: MemorySeqRm, _ctx: &ActorContext<Self>) -> bool {
-        unsafe { llama_memory_seq_rm(self.get_memory(), msg.seq_id, msg.p0, msg.p1) }
-    }
-}
-
-impl Handler<MemorySeqCp> for ContextActor {
-    fn handle(&mut self, msg: MemorySeqCp, _ctx: &ActorContext<Self>) {
-        unsafe { llama_memory_seq_cp(self.get_memory(), msg.src, msg.dst, msg.p0, msg.p1) }
-    }
-}
-
-impl Handler<MemorySeqAdd> for ContextActor {
-    fn handle(&mut self, msg: MemorySeqAdd, _ctx: &ActorContext<Self>) {
-        unsafe { llama_memory_seq_add(self.get_memory(), msg.seq_id, msg.p0, msg.p1, msg.delta) }
-    }
-}
-
-impl Handler<MemorySeqPosMin> for ContextActor {
-    fn handle(&mut self, msg: MemorySeqPosMin, _ctx: &ActorContext<Self>) -> llama_pos {
-        unsafe { llama_memory_seq_pos_min(self.get_memory(), msg.seq_id) }
-    }
-}
-
-impl Handler<MemorySeqPosMax> for ContextActor {
-    fn handle(&mut self, msg: MemorySeqPosMax, _ctx: &ActorContext<Self>) -> llama_pos {
-        unsafe { llama_memory_seq_pos_max(self.get_memory(), msg.seq_id) }
-    }
-}
-
-impl Handler<GetNCtx> for ContextActor {
-    fn handle(&mut self, _msg: GetNCtx, _ctx: &ActorContext<Self>) -> u32 {
-        unsafe { llama_n_ctx(self.ctx) }
-    }
-}
-
-impl Handler<CanShift> for ContextActor {
-    fn handle(&mut self, _msg: CanShift, _ctx: &ActorContext<Self>) -> bool {
-        unsafe { llama_memory_can_shift(self.get_memory()) }
-    }
-}
-
-impl Handler<FreeSlots> for ContextActor {
-    fn handle(&mut self, _msg: FreeSlots, _ctx: &ActorContext<Self>) -> usize {
-        self.checked_out.iter().filter(|&&s| !s).count()
-    }
-}
-
-impl Handler<GetPerf> for ContextActor {
-    fn handle(&mut self, _msg: GetPerf, _ctx: &ActorContext<Self>) -> llama_perf_context_data {
-        unsafe { llama_perf_context(self.ctx) }
-    }
-}
-
-// -- Public handle --
-
 struct ContextInner {
-    actor: ActorRef<ContextActor>,
+    commands: mpsc::Sender<Command>,
+    worker: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for ContextInner {
     fn drop(&mut self) {
-        self.actor.context().stop();
-        let _ = self.actor.send(FreeSlots);
-        self.actor.join();
+        let _ = self.commands.send(Command::Shutdown);
+        if let Some(worker) = self.worker.lock().unwrap().take() {
+            let _ = worker.join();
+        }
     }
 }
 
-/// Handle to a running context actor. Clone + Send + Sync.
-///
-/// The actor thread is stopped when the last clone is dropped.
 #[derive(Clone)]
 pub struct Context {
     inner: Arc<ContextInner>,
 }
 
 impl Context {
-    pub(crate) fn actor(&self) -> &ActorRef<ContextActor> {
-        &self.inner.actor
+    pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        let (commands, receiver) = mpsc::channel();
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let init = WorkerInit {
+            model: model.clone(),
+            params: *params,
+        };
+
+        let worker = std::thread::Builder::new()
+            .name("rusty-llama-context".into())
+            .spawn(move || match Worker::new(init) {
+                Ok(worker) => {
+                    let _ = started_tx.send(true);
+                    worker.run(receiver);
+                }
+                Err(()) => {
+                    let _ = started_tx.send(false);
+                }
+            })
+            .map_err(|_| ())?;
+
+        if started_rx.recv().map_err(|_| ())? {
+            Ok(Self {
+                inner: Arc::new(ContextInner {
+                    commands,
+                    worker: Mutex::new(Some(worker)),
+                }),
+            })
+        } else {
+            let _ = worker.join();
+            Err(())
+        }
     }
 
-    pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
-        let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
-        if ctx.is_null() {
-            return Err(());
-        }
-        let n_seq_max = params.n_seq_max as usize;
-        let n_vocab = model.n_tokens();
+    fn submit<T>(
+        &self,
+        build: impl FnOnce(Reply<T>) -> Command,
+    ) -> Result<oneshot::Receiver<Result<T, ContextError>>, ContextError> {
+        let (reply, receiver) = oneshot::channel();
+        self.inner
+            .commands
+            .send(build(reply))
+            .map_err(|_| ContextError::WorkerStopped)?;
+        Ok(receiver)
+    }
 
-        let actor_inner = ContextActor {
-            ctx,
-            batch: Batch::init_token(1, params.n_seq_max as i32),
-            n_vocab,
-            checked_out: vec![false; n_seq_max],
-        };
-        let actor = actor_inner.start();
+    fn wait<T>(&self, build: impl FnOnce(Reply<T>) -> Command) -> Result<T, ContextError> {
+        self.submit(build)?
+            .recv()
+            .map_err(|_| ContextError::WorkerStopped)?
+    }
 
-        Ok(Self {
-            inner: Arc::new(ContextInner { actor }),
+    async fn wait_async<T>(
+        &self,
+        build: impl FnOnce(Reply<T>) -> Command,
+    ) -> Result<T, ContextError> {
+        self.submit(build)?
+            .await
+            .map_err(|_| ContextError::WorkerStopped)?
+    }
+
+    pub(crate) fn same_worker(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    pub(crate) fn release_seq(&self, seq_id: llama_seq_id) {
+        let _ = self.inner.commands.send(Command::ReleaseSeq { seq_id });
+    }
+
+    pub(crate) fn push_token(
+        &self,
+        token: Token,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+    ) -> Result<Arc<[f32]>, DecodeError> {
+        self.wait(|reply| Command::PushToken {
+            token,
+            seq_id,
+            snapshot,
+            reply,
         })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) async fn push_token_async(
+        &self,
+        token: Token,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+    ) -> Result<Arc<[f32]>, DecodeError> {
+        self.wait_async(|reply| Command::PushToken {
+            token,
+            seq_id,
+            snapshot,
+            reply,
+        })
+        .await
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn decode_last(
+        &self,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+    ) -> Result<Option<Arc<[f32]>>, DecodeError> {
+        self.wait(|reply| Command::DecodeLast {
+            seq_id,
+            snapshot,
+            reply,
+        })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) async fn decode_last_async(
+        &self,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+    ) -> Result<Option<Arc<[f32]>>, DecodeError> {
+        self.wait_async(|reply| Command::DecodeLast {
+            seq_id,
+            snapshot,
+            reply,
+        })
+        .await
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn pop(
+        &self,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+    ) -> Option<Token> {
+        self.wait(|reply| Command::Pop {
+            seq_id,
+            snapshot,
+            reply,
+        })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) async fn pop_async(
+        &self,
+        seq_id: llama_seq_id,
+        snapshot: SharedSequenceSnapshot,
+    ) -> Option<Token> {
+        self.wait_async(|reply| Command::Pop {
+            seq_id,
+            snapshot,
+            reply,
+        })
+        .await
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn remove(
+        &self,
+        seq_id: llama_seq_id,
+        start: llama_pos,
+        end: llama_pos,
+        snapshot: SharedSequenceSnapshot,
+    ) -> bool {
+        self.wait(|reply| Command::Remove {
+            seq_id,
+            start,
+            end,
+            snapshot,
+            reply,
+        })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) async fn remove_async(
+        &self,
+        seq_id: llama_seq_id,
+        start: llama_pos,
+        end: llama_pos,
+        snapshot: SharedSequenceSnapshot,
+    ) -> bool {
+        self.wait_async(|reply| Command::Remove {
+            seq_id,
+            start,
+            end,
+            snapshot,
+            reply,
+        })
+        .await
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn copy(
+        &self,
+        src: llama_seq_id,
+        dst: llama_seq_id,
+        start: llama_pos,
+        end: llama_pos,
+        src_snapshot: SharedSequenceSnapshot,
+        dst_snapshot: SharedSequenceSnapshot,
+    ) {
+        self.wait(|reply| Command::Copy {
+            src,
+            dst,
+            start,
+            end,
+            src_snapshot,
+            dst_snapshot,
+            reply,
+        })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) async fn copy_async(
+        &self,
+        src: llama_seq_id,
+        dst: llama_seq_id,
+        start: llama_pos,
+        end: llama_pos,
+        src_snapshot: SharedSequenceSnapshot,
+        dst_snapshot: SharedSequenceSnapshot,
+    ) {
+        self.wait_async(|reply| Command::Copy {
+            src,
+            dst,
+            start,
+            end,
+            src_snapshot,
+            dst_snapshot,
+            reply,
+        })
+        .await
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn memory_seq_rm(
+        &self,
+        seq_id: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+        snapshot: SharedSequenceSnapshot,
+    ) -> bool {
+        self.wait(|reply| Command::MemorySeqRm {
+            seq_id,
+            p0,
+            p1,
+            snapshot,
+            reply,
+        })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn memory_seq_add(
+        &self,
+        seq_id: llama_seq_id,
+        p0: llama_pos,
+        p1: llama_pos,
+        delta: llama_pos,
+        snapshot: SharedSequenceSnapshot,
+    ) {
+        self.wait(|reply| Command::MemorySeqAdd {
+            seq_id,
+            p0,
+            p1,
+            delta,
+            snapshot,
+            reply,
+        })
+        .expect("context worker stopped")
+    }
+
+    pub(crate) fn memory_seq_pos_min(&self, seq_id: llama_seq_id) -> llama_pos {
+        self.wait(|reply| Command::MemorySeqPosMin { seq_id, reply })
+            .expect("context worker stopped")
+    }
+
+    pub(crate) fn memory_seq_pos_max(&self, seq_id: llama_seq_id) -> llama_pos {
+        self.wait(|reply| Command::MemorySeqPosMax { seq_id, reply })
+            .expect("context worker stopped")
     }
 
     pub fn sequence(&self) -> Option<crate::Sequence> {
-        let seq_id = self.actor().checkout_seq().unwrap();
-        seq_id.map(|id| crate::Sequence::new(self.clone(), id))
+        self.wait(|reply| Command::CheckoutSeq { reply })
+            .expect("context worker stopped")
+            .map(|(id, snapshot)| crate::Sequence::new(self.clone(), id, snapshot))
+    }
+
+    pub async fn sequence_async(&self) -> Option<crate::Sequence> {
+        self.wait_async(|reply| Command::CheckoutSeq { reply })
+            .await
+            .expect("context worker stopped")
+            .map(|(id, snapshot)| crate::Sequence::new(self.clone(), id, snapshot))
     }
 
     pub fn free_slots(&self) -> usize {
-        self.actor().free_slots().unwrap()
+        self.wait(|reply| Command::FreeSlots { reply })
+            .expect("context worker stopped")
+    }
+
+    pub async fn free_slots_async(&self) -> usize {
+        self.wait_async(|reply| Command::FreeSlots { reply })
+            .await
+            .expect("context worker stopped")
     }
 
     pub fn n_ctx(&self) -> u32 {
-        self.actor().get_n_ctx().unwrap()
+        self.wait(|reply| Command::GetNCtx { reply })
+            .expect("context worker stopped")
+    }
+
+    pub async fn n_ctx_async(&self) -> u32 {
+        self.wait_async(|reply| Command::GetNCtx { reply })
+            .await
+            .expect("context worker stopped")
     }
 
     pub fn can_shift(&self) -> bool {
-        self.actor().can_shift().unwrap()
+        self.wait(|reply| Command::CanShift { reply })
+            .expect("context worker stopped")
+    }
+
+    pub async fn can_shift_async(&self) -> bool {
+        self.wait_async(|reply| Command::CanShift { reply })
+            .await
+            .expect("context worker stopped")
     }
 
     pub fn perf(&self) -> llama_perf_context_data {
-        self.actor().get_perf().unwrap()
+        self.wait(|reply| Command::GetPerf { reply })
+            .expect("context worker stopped")
+    }
+
+    pub async fn perf_async(&self) -> llama_perf_context_data {
+        self.wait_async(|reply| Command::GetPerf { reply })
+            .await
+            .expect("context worker stopped")
     }
 }
