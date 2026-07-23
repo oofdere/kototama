@@ -325,13 +325,7 @@ impl Worker {
                         let removed = end - start;
                         if removed > 0 && (end as usize) < len {
                             unsafe {
-                                llama_memory_seq_add(
-                                    self.get_memory(),
-                                    seq_id,
-                                    end,
-                                    -1,
-                                    -removed,
-                                )
+                                llama_memory_seq_add(self.get_memory(), seq_id, end, -1, -removed)
                             };
                         }
 
@@ -359,13 +353,7 @@ impl Worker {
                             llama_memory_seq_rm(self.get_memory(), dst, -1, -1);
                             llama_memory_seq_cp(self.get_memory(), src, dst, start, end);
                             if start > 0 {
-                                llama_memory_seq_add(
-                                    self.get_memory(),
-                                    dst,
-                                    start,
-                                    end,
-                                    -start,
-                                );
+                                llama_memory_seq_add(self.get_memory(), dst, start, end, -start);
                             }
                         }
                         let mut dst_state = dst_snapshot.lock().unwrap();

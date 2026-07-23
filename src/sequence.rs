@@ -181,12 +181,9 @@ impl Sequence {
     }
 
     pub fn kv_remove(&mut self, range: Range<i32>) -> bool {
-        let removed = self.ctx.memory_seq_rm(
-            self.id,
-            range.start,
-            range.end,
-            self.snapshot.clone(),
-        );
+        let removed =
+            self.ctx
+                .memory_seq_rm(self.id, range.start, range.end, self.snapshot.clone());
         self.refresh();
         removed
     }

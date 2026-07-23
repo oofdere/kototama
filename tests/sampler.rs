@@ -53,8 +53,14 @@ fn min_p_masks_below_threshold() {
     let out = m.apply(&[4.0, 3.5, 3.0, 2.0]);
     assert!(out[0].is_finite(), "max survives");
     assert!(out[1].is_finite(), "3.5 >= thresh survives");
-    assert!(out[2].is_infinite() && out[2].is_sign_negative(), "3.0 masked");
-    assert!(out[3].is_infinite() && out[3].is_sign_negative(), "2.0 masked");
+    assert!(
+        out[2].is_infinite() && out[2].is_sign_negative(),
+        "3.0 masked"
+    );
+    assert!(
+        out[3].is_infinite() && out[3].is_sign_negative(),
+        "2.0 masked"
+    );
 }
 
 #[test]
@@ -96,8 +102,7 @@ fn dist_is_deterministic_for_same_seed() {
 fn dist_advances_state_across_calls() {
     let logits = vec![1.0, 2.0, 0.5, 3.0, 1.5];
     let mut d = Dist::new(7);
-    let distinct: std::collections::HashSet<i32> =
-        (0..10).map(|_| d.sample(&logits)).collect();
+    let distinct: std::collections::HashSet<i32> = (0..10).map(|_| d.sample(&logits)).collect();
     assert!(
         distinct.len() > 1,
         "RNG should advance, producing varied draws"

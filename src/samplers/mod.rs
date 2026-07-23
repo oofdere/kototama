@@ -7,27 +7,27 @@
 
 use crate::Token;
 
-mod temperature;
-mod min_p;
-mod top_k;
-mod top_p;
-mod typical;
-mod top_n_sigma;
-mod xtc;
+mod chain;
 mod dist;
 mod greedy;
-mod chain;
+mod min_p;
+mod temperature;
+mod top_k;
+mod top_n_sigma;
+mod top_p;
+mod typical;
+mod xtc;
 
-pub use temperature::Temperature;
-pub use min_p::MinP;
-pub use top_k::TopK;
-pub use top_p::TopP;
-pub use typical::Typical;
-pub use top_n_sigma::TopNSigma;
-pub use xtc::Xtc;
+pub use chain::Chain;
 pub use dist::Dist;
 pub use greedy::Greedy;
-pub use chain::Chain;
+pub use min_p::MinP;
+pub use temperature::Temperature;
+pub use top_k::TopK;
+pub use top_n_sigma::TopNSigma;
+pub use top_p::TopP;
+pub use typical::Typical;
+pub use xtc::Xtc;
 
 /// A sampler transforms a slice of logits and/or selects a token from them.
 ///
