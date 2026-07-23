@@ -2,7 +2,7 @@ name: Rust
 
 on:
   push:
-    branches: ["trunk", "agent/sync-async-worker"]
+    branches: ["trunk"]
   pull_request:
     branches: ["trunk"]
 
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install stable Rust
         run: |
@@ -30,7 +30,6 @@ jobs:
           cargo --version
 
       - name: Apply cancellation-safety fixes
-        if: github.event_name == 'push'
         run: |
           python .github/worker-fix/fix_context.py
           python .github/worker-fix/fix_misc.py
