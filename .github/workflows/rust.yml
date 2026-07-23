@@ -1,11 +1,10 @@
 name: Rust
 
 on:
+  push:
+    branches: ["trunk"]
   pull_request:
     branches: ["trunk"]
-
-permissions:
-  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,7 +17,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install stable Rust
         run: |
@@ -26,18 +24,6 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
-
-      - name: Transform context worker
-        run: python .github/worker-fix/fix_context.py
-
-      - name: Transform sequence API and tests
-        run: python .github/worker-fix/fix_misc.py
-
-      - name: Remove temporary files
-        run: rm -rf .github/worker-fix
-
-      - name: Format
-        run: cargo fmt --all
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -47,11 +33,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose -- --test-threads=1
-
-      - name: Commit verified source fixes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- src tests examples .github
-          git commit -m "make async sequence state cancellation-safe"
-          git push
