@@ -54,14 +54,16 @@ pub enum ContextError {
 }
 
 pub(crate) struct SequenceSnapshot {
-    pub tokens: Arc<[Token]>,
+    pub tokens: Vec<Token>,
+    pub token_snapshot: Option<Arc<[Token]>>,
     pub logits: Option<Arc<[f32]>>,
 }
 
 impl SequenceSnapshot {
     fn empty() -> Self {
         Self {
-            tokens: Arc::from([]),
+            tokens: Vec::new(),
+            token_snapshot: Some(Arc::from([])),
             logits: None,
         }
     }
@@ -230,9 +232,9 @@ impl Worker {
             return None;
         }
 
-        Some(Arc::from(
-            unsafe { std::slice::from_raw_parts(ptr, self.n_vocab as usize) }.to_vec(),
-        ))
+        Some(Arc::from(unsafe {
+            std::slice::from_raw_parts(ptr, self.n_vocab as usize)
+        }))
     }
 
     fn push_token(
@@ -302,9 +304,8 @@ impl Worker {
                     let result = self.push_token(token, pos, seq_id);
                     if let Ok(logits) = &result {
                         let mut state = snapshot.write().unwrap();
-                        let mut tokens = state.tokens.to_vec();
-                        tokens.push(token);
-                        state.tokens = Arc::from(tokens);
+                        state.tokens.push(token);
+                        state.token_snapshot = None;
                         state.logits = Some(logits.clone());
                     }
                     let _ = reply.send(Ok(result));
@@ -346,9 +347,8 @@ impl Worker {
                         };
                         if ok {
                             let mut state = snapshot.write().unwrap();
-                            let mut tokens = state.tokens.to_vec();
-                            let token = tokens.pop();
-                            state.tokens = Arc::from(tokens);
+                            let token = state.tokens.pop();
+                            state.token_snapshot = None;
                             state.logits = None;
                             token
                         } else {
@@ -377,9 +377,8 @@ impl Worker {
                         }
 
                         let mut state = snapshot.write().unwrap();
-                        let mut tokens = state.tokens.to_vec();
-                        tokens.drain(start as usize..end as usize);
-                        state.tokens = Arc::from(tokens);
+                        state.tokens.drain(start as usize..end as usize);
+                        state.token_snapshot = None;
                         state.logits = None;
                     }
                     let _ = reply.send(Ok(ok));
@@ -404,8 +403,8 @@ impl Worker {
                             }
                         }
                         let mut dst_state = dst_snapshot.write().unwrap();
-                        dst_state.tokens =
-                            Arc::from(src_tokens[start as usize..end as usize].to_vec());
+                        dst_state.tokens = src_tokens[start as usize..end as usize].to_vec();
+                        dst_state.token_snapshot = None;
                         dst_state.logits = None;
                     }
                     let _ = reply.send(Ok(()));
@@ -499,7 +498,10 @@ pin_project_lite::pin_project! {
 impl<F: Future<Output = Option<crate::Sequence>>> Future for CheckoutFuture<F> {
     type Output = Option<crate::Sequence>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         let this = self.project();
         match this.inner.poll(cx) {
             std::task::Poll::Ready(val) => {

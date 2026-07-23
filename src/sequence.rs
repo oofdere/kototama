@@ -22,6 +22,12 @@ impl Sequence {
         Self { ctx, id, snapshot }
     }
 
+    fn checked_range(range: Range<usize>) -> Option<Range<i32>> {
+        let start = i32::try_from(range.start).ok()?;
+        let end = i32::try_from(range.end).ok()?;
+        Some(start..end)
+    }
+
     /// Returns the latest logits snapshot, if the sequence has been decoded.
     pub fn logits(&self) -> Option<Arc<[f32]>> {
         self.snapshot.read().unwrap().logits.clone()
@@ -90,22 +96,19 @@ impl Sequence {
     }
 
     pub fn remove(&mut self, range: Range<usize>) -> bool {
-        self.ctx.remove(
-            self.id,
-            range.start as i32,
-            range.end as i32,
-            self.snapshot.clone(),
-        )
+        let Some(range) = Self::checked_range(range) else {
+            return false;
+        };
+        self.ctx
+            .remove(self.id, range.start, range.end, self.snapshot.clone())
     }
 
     pub async fn remove_async(&mut self, range: Range<usize>) -> bool {
+        let Some(range) = Self::checked_range(range) else {
+            return false;
+        };
         self.ctx
-            .remove_async(
-                self.id,
-                range.start as i32,
-                range.end as i32,
-                self.snapshot.clone(),
-            )
+            .remove_async(self.id, range.start, range.end, self.snapshot.clone())
             .await
     }
 
@@ -115,11 +118,12 @@ impl Sequence {
             "cannot copy sequences between different contexts"
         );
         assert_ne!(self.id, other.id, "cannot copy a sequence onto itself");
+        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
         self.ctx.copy(
             self.id,
             other.id,
-            range.start as i32,
-            range.end as i32,
+            range.start,
+            range.end,
             self.snapshot.clone(),
             other.snapshot.clone(),
         );
@@ -131,12 +135,13 @@ impl Sequence {
             "cannot copy sequences between different contexts"
         );
         assert_ne!(self.id, other.id, "cannot copy a sequence onto itself");
+        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
         self.ctx
             .copy_async(
                 self.id,
                 other.id,
-                range.start as i32,
-                range.end as i32,
+                range.start,
+                range.end,
                 self.snapshot.clone(),
                 other.snapshot.clone(),
             )
@@ -161,7 +166,14 @@ impl Sequence {
 
     /// Returns the latest token snapshot.
     pub fn tokens(&self) -> Arc<[Token]> {
-        self.snapshot.read().unwrap().tokens.clone()
+        let mut state = self.snapshot.write().unwrap();
+        if let Some(tokens) = &state.token_snapshot {
+            return tokens.clone();
+        }
+
+        let tokens: Arc<[Token]> = Arc::from(state.tokens.as_slice());
+        state.token_snapshot = Some(tokens.clone());
+        tokens
     }
 
     pub fn kv_remove(&mut self, range: Range<i32>) -> bool {

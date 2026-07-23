@@ -1,6 +1,7 @@
 mod common;
 
 use rusty_llama::{Context, Dist, Greedy, Sampler, Temperature};
+use std::sync::Arc;
 
 fn setup() -> (rusty_llama::Model, rusty_llama::ContextParams) {
     common::load_model_and_context()
@@ -101,6 +102,45 @@ fn remove_range() {
     assert_eq!(seq.len(), n);
     seq.remove(0..1);
     assert_eq!(seq.len(), n - 1);
+}
+
+#[test]
+fn remove_rejects_unrepresentable_range() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    assert!(!seq.remove(usize::MAX..usize::MAX));
+}
+
+#[test]
+#[should_panic(expected = "sequence range exceeds llama_pos")]
+fn copy_rejects_unrepresentable_range() {
+    let (model, _) = setup();
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    let ctx = Context::new(&model, &params).unwrap();
+    let src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    src.copy_to(&mut dst, usize::MAX..usize::MAX);
+}
+
+#[test]
+fn token_snapshot_is_cached_and_invalidated_by_mutation() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let token = model.bos_token().unwrap_or(1);
+
+    seq.push(token);
+    let first = seq.tokens();
+    let cached = seq.tokens();
+    assert!(Arc::ptr_eq(&first, &cached));
+
+    seq.push(token);
+    let updated = seq.tokens();
+    assert!(!Arc::ptr_eq(&first, &updated));
+    assert_eq!(first.as_ref(), &[token]);
+    assert_eq!(updated.as_ref(), &[token, token]);
 }
 
 #[test]
