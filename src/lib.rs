@@ -4,7 +4,7 @@
 //! It maintains close fidelity to the original API while providing:
 //! - Memory safety through RAII
 //! - Type safety where possible
-//! - Thread safety via an actor model (powered by Spawned)
+//! - Runtime-agnostic sync and async access through a dedicated worker thread
 
 mod model;
 pub use model::*;
@@ -13,7 +13,7 @@ mod backend;
 pub use backend::*;
 
 mod context;
-pub use context::{Context, ContextParams, DecodeError};
+pub use context::{Context, ContextError, ContextParams, DecodeError};
 
 mod samplers;
 pub use samplers::*;
