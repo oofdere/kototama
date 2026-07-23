@@ -35,17 +35,17 @@ fn tokens_accessor_matches_push_order() {
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("abc", false, false);
     seq.extend(&tokens);
-    assert_eq!(seq.tokens(), tokens.as_slice());
+    assert_eq!(seq.tokens().as_ref(), tokens.as_slice());
 }
 
 #[test]
-fn index_operator() {
+fn token_snapshot_supports_indexing() {
     let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
     seq.extend(&tokens);
-    assert_eq!(seq[0], tokens[0]);
+    assert_eq!(seq.tokens()[0], tokens[0]);
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn copy_to() {
     src.extend(&tokens);
     dst.extend(&tokens);
     src.copy_to(&mut dst, 0..tokens.len());
-    assert_eq!(dst.tokens(), src.tokens());
+    assert_eq!(dst.tokens().as_ref(), src.tokens().as_ref());
 }
 
 #[test]
@@ -141,9 +141,9 @@ fn multiple_sequences_independent() {
     let tokens2 = model.tokenize("world", false, false);
     seq1.extend(&tokens1);
     seq2.extend(&tokens2);
-    assert_eq!(seq1.tokens(), tokens1.as_slice());
-    assert_eq!(seq2.tokens(), tokens2.as_slice());
-    assert_ne!(seq1.tokens(), seq2.tokens());
+    assert_eq!(seq1.tokens().as_ref(), tokens1.as_slice());
+    assert_eq!(seq2.tokens().as_ref(), tokens2.as_slice());
+    assert_ne!(seq1.tokens().as_ref(), seq2.tokens().as_ref());
 }
 
 #[test]
@@ -156,7 +156,10 @@ fn multiple_sequences_generate_different_logits() {
     let tokens2 = model.tokenize("world", false, false);
     seq1.extend(&tokens1);
     seq2.extend(&tokens2);
-    assert_ne!(seq1.logits().unwrap(), seq2.logits().unwrap());
+    assert_ne!(
+        seq1.logits().unwrap().as_ref(),
+        seq2.logits().unwrap().as_ref()
+    );
 }
 
 #[test]
@@ -207,7 +210,7 @@ fn copy_from() {
     src.extend(&tokens);
     dst.extend(&tokens);
     dst.copy_from(&src, 0..tokens.len());
-    assert_eq!(dst.tokens(), src.tokens());
+    assert_eq!(dst.tokens().as_ref(), src.tokens().as_ref());
 }
 
 // ---------- Sequence::is_empty() (new in this PR) ----------
@@ -325,7 +328,7 @@ fn sequence_sample_with_temperature_in_vocab_range() {
     let mut temp = Temperature::new(0.8);
     let mut dist = Dist::new(123);
     let logits = seq.logits().unwrap();
-    let l = temp.apply(logits);
+    let l = temp.apply(&logits);
     let token = dist.sample(&l);
     assert!(
         token >= 0 && token < model.n_tokens(),

@@ -84,7 +84,7 @@ fn main() {
         loop {
             // sample the next token (min_p -> temp -> dist)
             let logits = seq.logits().expect("no logits");
-            let l = minp.apply(logits);
+            let l = minp.apply(&logits);
             let l = temp.apply(&l);
             let token = dist.sample(&l);
 

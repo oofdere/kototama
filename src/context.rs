@@ -1,6 +1,9 @@
 use llama_sys::*;
+use std::collections::HashMap;
+use std::future::Future;
 use std::ops::{Deref, DerefMut};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 
 use crate::{common, Batch, Model, Token};
@@ -64,13 +67,20 @@ impl SequenceSnapshot {
     }
 }
 
-pub(crate) type SharedSequenceSnapshot = Arc<Mutex<SequenceSnapshot>>;
+pub(crate) type SharedSequenceSnapshot = Arc<RwLock<SequenceSnapshot>>;
 
 type Reply<T> = oneshot::Sender<Result<T, ContextError>>;
 
 enum Command {
     CheckoutSeq {
-        reply: Reply<Option<(llama_seq_id, SharedSequenceSnapshot)>>,
+        request_id: u64,
+        reply: Reply<Option<SequenceReservation>>,
+    },
+    CommitCheckout {
+        request_id: u64,
+    },
+    CancelCheckout {
+        request_id: u64,
     },
     ReleaseSeq {
         seq_id: llama_seq_id,
@@ -145,6 +155,21 @@ enum Command {
     Shutdown,
 }
 
+pub(crate) struct SequenceReservation {
+    id: llama_seq_id,
+    snapshot: SharedSequenceSnapshot,
+}
+
+impl SequenceReservation {
+    fn new(id: llama_seq_id, snapshot: SharedSequenceSnapshot) -> Self {
+        Self { id, snapshot }
+    }
+
+    pub(crate) fn into_parts(self) -> (llama_seq_id, SharedSequenceSnapshot) {
+        (self.id, self.snapshot.clone())
+    }
+}
+
 struct WorkerInit {
     model: Model,
     params: ContextParams,
@@ -162,6 +187,7 @@ struct Worker {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    pending_checkouts: HashMap<u64, llama_seq_id>,
 }
 
 impl Worker {
@@ -180,6 +206,7 @@ impl Worker {
             batch: Batch::init_token(1, init.params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            pending_checkouts: HashMap::new(),
         })
     }
 
@@ -221,29 +248,49 @@ impl Worker {
         self.get_logits_ith(0).ok_or(DecodeError::FatalError)
     }
 
+    fn checkout_sequence(&mut self, request_id: u64) -> Option<SequenceReservation> {
+        let id = self.checked_out.iter().position(|used| !*used)?;
+        self.checked_out[id] = true;
+        let seq_id = id as llama_seq_id;
+        self.pending_checkouts.insert(request_id, seq_id);
+        Some(SequenceReservation::new(
+            seq_id,
+            Arc::new(RwLock::new(SequenceSnapshot::empty())),
+        ))
+    }
+
+    fn release_sequence(&mut self, seq_id: llama_seq_id) {
+        unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, -1, -1) };
+        if let Some(slot) = self.checked_out.get_mut(seq_id as usize) {
+            *slot = false;
+        }
+    }
+
     fn run(mut self, commands: mpsc::Receiver<Command>) {
         while let Ok(command) = commands.recv() {
             match command {
-                Command::CheckoutSeq { reply } => {
-                    let result = self
-                        .checked_out
-                        .iter_mut()
-                        .enumerate()
-                        .find(|(_, used)| !**used)
-                        .map(|(id, used)| {
-                            *used = true;
-                            (
-                                id as llama_seq_id,
-                                Arc::new(Mutex::new(SequenceSnapshot::empty())),
-                            )
-                        });
-                    let _ = reply.send(Ok(result));
+                Command::CheckoutSeq { request_id, reply } => {
+                    let result = self.checkout_sequence(request_id);
+                    let allocated = result.as_ref().map(|reservation| reservation.id);
+                    if reply.send(Ok(result)).is_err() {
+                        self.pending_checkouts.remove(&request_id);
+                        if let Some(seq_id) = allocated {
+                            self.release_sequence(seq_id);
+                        }
+                    }
+                }
+                Command::CommitCheckout { request_id } => {
+                    self.pending_checkouts.remove(&request_id);
+                }
+                Command::CancelCheckout { request_id } => {
+                    if let Some(seq_id) = self.pending_checkouts.remove(&request_id) {
+                        self.release_sequence(seq_id);
+                    }
                 }
                 Command::ReleaseSeq { seq_id } => {
-                    unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, -1, -1) };
-                    if let Some(slot) = self.checked_out.get_mut(seq_id as usize) {
-                        *slot = false;
-                    }
+                    self.pending_checkouts
+                        .retain(|_, pending_seq_id| *pending_seq_id != seq_id);
+                    self.release_sequence(seq_id);
                 }
                 Command::PushToken {
                     token,
@@ -251,10 +298,10 @@ impl Worker {
                     snapshot,
                     reply,
                 } => {
-                    let pos = snapshot.lock().unwrap().tokens.len() as llama_pos;
+                    let pos = snapshot.read().unwrap().tokens.len() as llama_pos;
                     let result = self.push_token(token, pos, seq_id);
                     if let Ok(logits) = &result {
-                        let mut state = snapshot.lock().unwrap();
+                        let mut state = snapshot.write().unwrap();
                         let mut tokens = state.tokens.to_vec();
                         tokens.push(token);
                         state.tokens = Arc::from(tokens);
@@ -268,7 +315,7 @@ impl Worker {
                     reply,
                 } => {
                     let last = {
-                        let state = snapshot.lock().unwrap();
+                        let state = snapshot.read().unwrap();
                         state
                             .tokens
                             .last()
@@ -280,7 +327,7 @@ impl Worker {
                         None => Ok(None),
                     };
                     if let Ok(Some(logits)) = &result {
-                        snapshot.lock().unwrap().logits = Some(logits.clone());
+                        snapshot.write().unwrap().logits = Some(logits.clone());
                     }
                     let _ = reply.send(Ok(result));
                 }
@@ -289,7 +336,7 @@ impl Worker {
                     snapshot,
                     reply,
                 } => {
-                    let len = snapshot.lock().unwrap().tokens.len();
+                    let len = snapshot.read().unwrap().tokens.len();
                     let result = if len == 0 {
                         None
                     } else {
@@ -298,7 +345,7 @@ impl Worker {
                             llama_memory_seq_rm(self.get_memory(), seq_id, start, len as i32)
                         };
                         if ok {
-                            let mut state = snapshot.lock().unwrap();
+                            let mut state = snapshot.write().unwrap();
                             let mut tokens = state.tokens.to_vec();
                             let token = tokens.pop();
                             state.tokens = Arc::from(tokens);
@@ -317,7 +364,7 @@ impl Worker {
                     snapshot,
                     reply,
                 } => {
-                    let len = snapshot.lock().unwrap().tokens.len();
+                    let len = snapshot.read().unwrap().tokens.len();
                     let valid = start >= 0 && end >= start && (end as usize) <= len;
                     let ok = valid
                         && unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, start, end) };
@@ -329,7 +376,7 @@ impl Worker {
                             };
                         }
 
-                        let mut state = snapshot.lock().unwrap();
+                        let mut state = snapshot.write().unwrap();
                         let mut tokens = state.tokens.to_vec();
                         tokens.drain(start as usize..end as usize);
                         state.tokens = Arc::from(tokens);
@@ -346,7 +393,7 @@ impl Worker {
                     dst_snapshot,
                     reply,
                 } => {
-                    let src_tokens = src_snapshot.lock().unwrap().tokens.clone();
+                    let src_tokens = src_snapshot.read().unwrap().tokens.clone();
                     let valid = start >= 0 && end >= start && (end as usize) <= src_tokens.len();
                     if valid {
                         unsafe {
@@ -356,7 +403,7 @@ impl Worker {
                                 llama_memory_seq_add(self.get_memory(), dst, start, end, -start);
                             }
                         }
-                        let mut dst_state = dst_snapshot.lock().unwrap();
+                        let mut dst_state = dst_snapshot.write().unwrap();
                         dst_state.tokens =
                             Arc::from(src_tokens[start as usize..end as usize].to_vec());
                         dst_state.logits = None;
@@ -372,7 +419,7 @@ impl Worker {
                 } => {
                     let ok = unsafe { llama_memory_seq_rm(self.get_memory(), seq_id, p0, p1) };
                     if ok {
-                        snapshot.lock().unwrap().logits = None;
+                        snapshot.write().unwrap().logits = None;
                     }
                     let _ = reply.send(Ok(ok));
                 }
@@ -385,7 +432,7 @@ impl Worker {
                     reply,
                 } => {
                     unsafe { llama_memory_seq_add(self.get_memory(), seq_id, p0, p1, delta) };
-                    snapshot.lock().unwrap().logits = None;
+                    snapshot.write().unwrap().logits = None;
                     let _ = reply.send(Ok(()));
                 }
                 Command::MemorySeqPosMin { seq_id, reply } => {
@@ -424,6 +471,7 @@ impl Drop for Worker {
 struct ContextInner {
     commands: mpsc::Sender<Command>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    next_checkout_id: AtomicU64,
 }
 
 impl Drop for ContextInner {
@@ -438,6 +486,39 @@ impl Drop for ContextInner {
 #[derive(Clone)]
 pub struct Context {
     inner: Arc<ContextInner>,
+}
+
+struct CheckoutGuard {
+    context: Context,
+    request_id: u64,
+    active: bool,
+}
+
+impl CheckoutGuard {
+    fn new(context: Context, request_id: u64) -> Self {
+        Self {
+            context,
+            request_id,
+            active: true,
+        }
+    }
+
+    fn commit(&mut self) {
+        let _ = self.context.inner.commands.send(Command::CommitCheckout {
+            request_id: self.request_id,
+        });
+        self.active = false;
+    }
+}
+
+impl Drop for CheckoutGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.context.inner.commands.send(Command::CancelCheckout {
+                request_id: self.request_id,
+            });
+        }
+    }
 }
 
 impl Context {
@@ -467,6 +548,7 @@ impl Context {
                 inner: Arc::new(ContextInner {
                     commands,
                     worker: Mutex::new(Some(worker)),
+                    next_checkout_id: AtomicU64::new(1),
                 }),
             })
         } else {
@@ -504,6 +586,10 @@ impl Context {
 
     pub(crate) fn same_worker(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    fn next_checkout_id(&self) -> u64 {
+        self.inner.next_checkout_id.fetch_add(1, Ordering::Relaxed)
     }
 
     pub(crate) fn release_seq(&self, seq_id: llama_seq_id) {
@@ -720,16 +806,31 @@ impl Context {
     }
 
     pub fn sequence(&self) -> Option<crate::Sequence> {
-        self.wait(|reply| Command::CheckoutSeq { reply })
-            .expect("context worker stopped")
-            .map(|(id, snapshot)| crate::Sequence::new(self.clone(), id, snapshot))
+        let request_id = self.next_checkout_id();
+        let mut guard = CheckoutGuard::new(self.clone(), request_id);
+        let reservation = self
+            .wait(|reply| Command::CheckoutSeq { request_id, reply })
+            .expect("context worker stopped");
+        guard.commit();
+        reservation.map(|reservation| crate::Sequence::new(self.clone(), reservation))
     }
 
-    pub async fn sequence_async(&self) -> Option<crate::Sequence> {
-        self.wait_async(|reply| Command::CheckoutSeq { reply })
-            .await
-            .expect("context worker stopped")
-            .map(|(id, snapshot)| crate::Sequence::new(self.clone(), id, snapshot))
+    pub fn sequence_async(&self) -> impl Future<Output = Option<crate::Sequence>> + Send + 'static {
+        let request_id = self.next_checkout_id();
+        let mut guard = CheckoutGuard::new(self.clone(), request_id);
+        let receiver = self.submit(|reply| Command::CheckoutSeq { request_id, reply });
+        let context = self.clone();
+
+        async move {
+            let reservation = receiver
+                .expect("context worker stopped")
+                .await
+                .map_err(|_| ContextError::WorkerStopped)
+                .and_then(|result| result)
+                .expect("context worker stopped");
+            guard.commit();
+            reservation.map(|reservation| crate::Sequence::new(context, reservation))
+        }
     }
 
     pub fn free_slots(&self) -> usize {

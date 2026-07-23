@@ -28,7 +28,7 @@ fn async_api_uses_the_same_worker_state() {
 
         let tokens = model.tokenize("hello", false, false);
         seq.extend_async(&tokens).await;
-        assert_eq!(seq.tokens(), tokens.as_slice());
+        assert_eq!(seq.tokens().as_ref(), tokens.as_slice());
         assert_eq!(seq.logits().unwrap().len(), model.n_tokens() as usize);
 
         let popped = seq.pop_async().await;
@@ -44,4 +44,18 @@ fn sync_and_async_calls_can_share_a_context() {
     let sync_value = ctx.n_ctx();
     let async_value = pollster::block_on(ctx.n_ctx_async());
     assert_eq!(sync_value, async_value);
+}
+
+#[test]
+fn dropping_sequence_checkout_future_releases_the_slot() {
+    let (model, params) = common::load_model_and_context();
+    let ctx = Context::new(&model, &params).unwrap();
+    let initial_slots = ctx.free_slots();
+
+    let checkout = ctx.sequence_async();
+    drop(checkout);
+
+    // free_slots is submitted after the cancellation command, so its reply is
+    // also a worker barrier for the abandoned checkout.
+    assert_eq!(ctx.free_slots(), initial_slots);
 }

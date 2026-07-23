@@ -75,7 +75,7 @@ fn sample_with_temperature_does_not_crash() {
     let mut temp = Temperature::new(0.8);
     let mut dist = Dist::new(42);
     let logits = seq.logits().unwrap();
-    let l = temp.apply(logits);
+    let l = temp.apply(&logits);
     let token = dist.sample(&l);
     assert!(token >= 0 && token < model.n_tokens());
 }
@@ -94,11 +94,11 @@ fn two_sequences_independent() {
     seq_a.extend(&tokens_a);
     seq_b.extend(&tokens_b);
 
-    assert_eq!(seq_a.tokens(), tokens_a.as_slice());
-    assert_eq!(seq_b.tokens(), tokens_b.as_slice());
+    assert_eq!(seq_a.tokens().as_ref(), tokens_a.as_slice());
+    assert_eq!(seq_b.tokens().as_ref(), tokens_b.as_slice());
     assert_ne!(
-        seq_a.logits().unwrap(),
-        seq_b.logits().unwrap(),
+        seq_a.logits().unwrap().as_ref(),
+        seq_b.logits().unwrap().as_ref(),
         "different prompts should produce different logits"
     );
 }
