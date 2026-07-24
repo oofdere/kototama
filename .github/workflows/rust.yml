@@ -1,8 +1,8 @@
 name: Rust
 
 on:
-  pull_request:
-    branches: ["trunk"]
+  push:
+    branches: ["agent/sync-async-worker"]
 
 permissions:
   contents: write
@@ -13,8 +13,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Remove stale context init wording
         run: |
@@ -34,12 +32,12 @@ jobs:
               raise SystemExit(f'expected one documentation block, found {text.count(old)}')
           path.write_text(text.replace(old, new, 1))
           PY
-          rm .github/doc-fix-trigger.txt
+          rm -f .github/doc-fix-trigger.txt .github/doc-fix-trigger-2.txt
 
       - name: Commit documentation fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/context.rs .github/doc-fix-trigger.txt
+          git add src/context.rs .github/doc-fix-trigger.txt .github/doc-fix-trigger-2.txt
           git commit -m "fix context initialization safety docs"
           git push
