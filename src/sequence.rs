@@ -28,6 +28,14 @@ impl Sequence {
         Some(start..end)
     }
 
+    fn checked_copy_range(&self, range: Range<usize>) -> Range<i32> {
+        assert!(
+            range.start <= range.end && range.end <= self.len(),
+            "sequence range out of bounds"
+        );
+        Self::checked_range(range).expect("sequence range exceeds llama_pos")
+    }
+
     /// Returns the latest logits snapshot, if the sequence has been decoded.
     pub fn logits(&self) -> Option<Arc<[f32]>> {
         self.snapshot.read().unwrap().logits.clone()
@@ -118,7 +126,7 @@ impl Sequence {
             "cannot copy sequences between different contexts"
         );
         assert_ne!(self.id, other.id, "cannot copy a sequence onto itself");
-        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
+        let range = self.checked_copy_range(range);
         self.ctx.copy(
             self.id,
             other.id,
@@ -135,7 +143,7 @@ impl Sequence {
             "cannot copy sequences between different contexts"
         );
         assert_ne!(self.id, other.id, "cannot copy a sequence onto itself");
-        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
+        let range = self.checked_copy_range(range);
         self.ctx
             .copy_async(
                 self.id,
