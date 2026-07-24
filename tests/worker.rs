@@ -1,6 +1,6 @@
 mod common;
 
-use rusty_llama::{Context, Model, ModelParams};
+use rusty_llama::{Context, ContextInitError, Model, ModelParams};
 
 #[test]
 fn context_keeps_its_model_alive() {
@@ -23,15 +23,15 @@ fn async_api_uses_the_same_worker_state() {
         let ctx = Context::new(&model, &params).unwrap();
         let initial_slots = ctx.free_slots();
 
-        let mut seq = ctx.sequence_async().await.unwrap();
-        assert_eq!(ctx.free_slots_async().await, initial_slots - 1);
+        let mut seq = ctx.sequence_async().await.unwrap().unwrap();
+        assert_eq!(ctx.free_slots_async().await.unwrap(), initial_slots - 1);
 
         let tokens = model.tokenize("hello", false, false);
-        seq.extend_async(&tokens).await;
+        seq.extend_async(&tokens).await.unwrap();
         assert_eq!(seq.tokens().as_ref(), tokens.as_slice());
         assert_eq!(seq.logits().unwrap().len(), model.n_tokens() as usize);
 
-        let popped = seq.pop_async().await;
+        let popped = seq.pop_async().await.unwrap();
         assert!(popped.is_some());
         assert_eq!(seq.len(), tokens.len() - 1);
     });
@@ -42,8 +42,19 @@ fn sync_and_async_calls_can_share_a_context() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
     let sync_value = ctx.n_ctx();
-    let async_value = pollster::block_on(ctx.n_ctx_async());
+    let async_value = pollster::block_on(ctx.n_ctx_async()).unwrap();
     assert_eq!(sync_value, async_value);
+}
+
+#[test]
+fn context_rejects_pointer_bearing_params() {
+    let (model, mut params) = common::load_model_and_context();
+    params.cb_eval_user_data = 1usize as *mut std::ffi::c_void;
+
+    assert!(matches!(
+        Context::new(&model, &params),
+        Err(ContextInitError::ThreadUnsafeParams)
+    ));
 }
 
 #[test]

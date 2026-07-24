@@ -21,8 +21,23 @@ impl ContextParams {
         &self.0
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut llama_context_params {
+    /// Returns a mutable pointer to the underlying llama.cpp parameter struct.
+    ///
+    /// # Safety
+    /// The caller must preserve all invariants of [`llama_context_params`]. In
+    /// particular, raw callback, user-data, sampler, and context pointers must
+    /// remain valid for every native operation that can observe them.
+    pub unsafe fn as_mut_ptr(&mut self) -> *mut llama_context_params {
         &mut self.0
+    }
+
+    fn has_worker_thread_state(&self) -> bool {
+        self.cb_eval.is_some()
+            || !self.cb_eval_user_data.is_null()
+            || self.abort_callback.is_some()
+            || !self.abort_callback_data.is_null()
+            || !self.samplers.is_null()
+            || self.n_samplers != 0
     }
 }
 
@@ -51,6 +66,14 @@ pub enum DecodeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextError {
     WorkerStopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextInitError {
+    ThreadUnsafeParams,
+    ThreadSpawnFailed,
+    WorkerStopped,
+    NativeInitFailed,
 }
 
 pub(crate) struct SequenceSnapshot {
@@ -117,7 +140,7 @@ enum Command {
         end: llama_pos,
         src_snapshot: SharedSequenceSnapshot,
         dst_snapshot: SharedSequenceSnapshot,
-        reply: Reply<()>,
+        reply: Reply<bool>,
     },
     MemorySeqRm {
         seq_id: llama_seq_id,
@@ -168,7 +191,7 @@ impl SequenceReservation {
     }
 
     pub(crate) fn into_parts(self) -> (llama_seq_id, SharedSequenceSnapshot) {
-        (self.id, self.snapshot.clone())
+        (self.id, self.snapshot)
     }
 }
 
@@ -177,10 +200,10 @@ struct WorkerInit {
     params: ContextParams,
 }
 
-// SAFETY: the worker is the sole owner of the copied parameter struct after
-// Context::new returns. This preserves the existing parameter API contract while
-// ensuring the native context itself is created, used, and destroyed on one OS
-// thread.
+// SAFETY: WorkerInit is private and is constructed only by Context::new,
+// which rejects every callback or raw pointer-bearing parameter, or by
+// Context::new_unchecked, whose safety contract requires all referenced state to
+// be valid and safe to access on the worker thread for the full context lifetime.
 unsafe impl Send for WorkerInit {}
 
 struct Worker {
@@ -193,10 +216,10 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(init: WorkerInit) -> Result<Self, ()> {
+    fn new(init: WorkerInit) -> Result<Self, ContextInitError> {
         let ctx = unsafe { llama_init_from_model(init.model.as_mut_ptr(), init.params.0) };
         if ctx.is_null() {
-            return Err(());
+            return Err(ContextInitError::NativeInitFailed);
         }
 
         let n_seq_max = init.params.n_seq_max as usize;
@@ -407,7 +430,7 @@ impl Worker {
                         dst_state.token_snapshot = None;
                         dst_state.logits = None;
                     }
-                    let _ = reply.send(Ok(()));
+                    let _ = reply.send(Ok(valid));
                 }
                 Command::MemorySeqRm {
                     seq_id,
@@ -495,8 +518,10 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<F: Future<Output = Option<crate::Sequence>>> Future for CheckoutFuture<F> {
-    type Output = Option<crate::Sequence>;
+impl<F: Future<Output = Result<Option<crate::Sequence>, ContextError>>> Future
+    for CheckoutFuture<F>
+{
+    type Output = Result<Option<crate::Sequence>, ContextError>;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
@@ -504,11 +529,15 @@ impl<F: Future<Output = Option<crate::Sequence>>> Future for CheckoutFuture<F> {
     ) -> std::task::Poll<Self::Output> {
         let this = self.project();
         match this.inner.poll(cx) {
-            std::task::Poll::Ready(val) => {
-                if let Some(mut guard) = this.guard.take() {
-                    guard.commit();
+            std::task::Poll::Ready(result) => {
+                if result.is_ok() {
+                    if let Some(mut guard) = this.guard.take() {
+                        guard.commit();
+                    }
+                } else {
+                    drop(this.guard.take());
                 }
-                std::task::Poll::Ready(val)
+                std::task::Poll::Ready(result)
             }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
@@ -549,7 +578,31 @@ impl Drop for CheckoutGuard {
 }
 
 impl Context {
-    pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+    pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ContextInitError> {
+        if params.has_worker_thread_state() {
+            return Err(ContextInitError::ThreadUnsafeParams);
+        }
+
+        // SAFETY: all callback and raw pointer-bearing fields were rejected.
+        unsafe { Self::new_unchecked(model, params) }
+    }
+
+    /// Creates a context while allowing callback and raw pointer-bearing params.
+    ///
+    /// # Safety
+    /// Every pointer reachable from `params` must remain valid until this
+    /// [`Context`] is dropped and must be safe to access from the context worker
+    /// thread. Callback functions must be callable on that thread. Sampler
+    /// chains and `ctx_other`, when provided, must not be used concurrently in a
+    /// way that violates llama.cpp's requirements.
+    pub unsafe fn new_unchecked(
+        model: &Model,
+        params: &ContextParams,
+    ) -> Result<Self, ContextInitError> {
+        Self::start_worker(model, params)
+    }
+
+    fn start_worker(model: &Model, params: &ContextParams) -> Result<Self, ContextInitError> {
         let (commands, receiver) = mpsc::channel();
         let (started_tx, started_rx) = mpsc::sync_channel(1);
         let init = WorkerInit {
@@ -561,26 +614,31 @@ impl Context {
             .name("rusty-llama-context".into())
             .spawn(move || match Worker::new(init) {
                 Ok(worker) => {
-                    let _ = started_tx.send(true);
+                    let _ = started_tx.send(Ok(()));
                     worker.run(receiver);
                 }
-                Err(()) => {
-                    let _ = started_tx.send(false);
+                Err(error) => {
+                    let _ = started_tx.send(Err(error));
                 }
             })
-            .map_err(|_| ())?;
+            .map_err(|_| ContextInitError::ThreadSpawnFailed)?;
 
-        if started_rx.recv().map_err(|_| ())? {
-            Ok(Self {
+        match started_rx.recv() {
+            Ok(Ok(())) => Ok(Self {
                 inner: Arc::new(ContextInner {
                     commands,
                     worker: Mutex::new(Some(worker)),
                     next_checkout_id: AtomicU64::new(1),
                 }),
-            })
-        } else {
-            let _ = worker.join();
-            Err(())
+            }),
+            Ok(Err(error)) => {
+                let _ = worker.join();
+                Err(error)
+            }
+            Err(_) => {
+                let _ = worker.join();
+                Err(ContextInitError::WorkerStopped)
+            }
         }
     }
 
@@ -643,7 +701,7 @@ impl Context {
         token: Token,
         seq_id: llama_seq_id,
         snapshot: SharedSequenceSnapshot,
-    ) -> Result<Arc<[f32]>, DecodeError> {
+    ) -> Result<Result<Arc<[f32]>, DecodeError>, ContextError> {
         self.wait_async(|reply| Command::PushToken {
             token,
             seq_id,
@@ -651,7 +709,6 @@ impl Context {
             reply,
         })
         .await
-        .expect("context worker stopped")
     }
 
     pub(crate) fn decode_last(
@@ -671,14 +728,13 @@ impl Context {
         &self,
         seq_id: llama_seq_id,
         snapshot: SharedSequenceSnapshot,
-    ) -> Result<Option<Arc<[f32]>>, DecodeError> {
+    ) -> Result<Result<Option<Arc<[f32]>>, DecodeError>, ContextError> {
         self.wait_async(|reply| Command::DecodeLast {
             seq_id,
             snapshot,
             reply,
         })
         .await
-        .expect("context worker stopped")
     }
 
     pub(crate) fn pop(
@@ -698,14 +754,13 @@ impl Context {
         &self,
         seq_id: llama_seq_id,
         snapshot: SharedSequenceSnapshot,
-    ) -> Option<Token> {
+    ) -> Result<Option<Token>, ContextError> {
         self.wait_async(|reply| Command::Pop {
             seq_id,
             snapshot,
             reply,
         })
         .await
-        .expect("context worker stopped")
     }
 
     pub(crate) fn remove(
@@ -731,7 +786,7 @@ impl Context {
         start: llama_pos,
         end: llama_pos,
         snapshot: SharedSequenceSnapshot,
-    ) -> bool {
+    ) -> Result<bool, ContextError> {
         self.wait_async(|reply| Command::Remove {
             seq_id,
             start,
@@ -740,7 +795,6 @@ impl Context {
             reply,
         })
         .await
-        .expect("context worker stopped")
     }
 
     pub(crate) fn copy(
@@ -751,7 +805,7 @@ impl Context {
         end: llama_pos,
         src_snapshot: SharedSequenceSnapshot,
         dst_snapshot: SharedSequenceSnapshot,
-    ) {
+    ) -> bool {
         self.wait(|reply| Command::Copy {
             src,
             dst,
@@ -772,7 +826,7 @@ impl Context {
         end: llama_pos,
         src_snapshot: SharedSequenceSnapshot,
         dst_snapshot: SharedSequenceSnapshot,
-    ) {
+    ) -> Result<bool, ContextError> {
         self.wait_async(|reply| Command::Copy {
             src,
             dst,
@@ -783,7 +837,6 @@ impl Context {
             reply,
         })
         .await
-        .expect("context worker stopped")
     }
 
     pub(crate) fn memory_seq_rm(
@@ -832,17 +885,21 @@ impl Context {
             .expect("context worker stopped")
     }
 
-    pub fn sequence(&self) -> Option<crate::Sequence> {
+    pub fn try_sequence(&self) -> Result<Option<crate::Sequence>, ContextError> {
         let request_id = self.next_checkout_id();
         let mut guard = CheckoutGuard::new(self.clone(), request_id);
-        let reservation = self
-            .wait(|reply| Command::CheckoutSeq { request_id, reply })
-            .expect("context worker stopped");
+        let reservation = self.wait(|reply| Command::CheckoutSeq { request_id, reply })?;
         guard.commit();
-        reservation.map(|reservation| crate::Sequence::new(self.clone(), reservation))
+        Ok(reservation.map(|reservation| crate::Sequence::new(self.clone(), reservation)))
     }
 
-    pub fn sequence_async(&self) -> impl Future<Output = Option<crate::Sequence>> + Send + 'static {
+    pub fn sequence(&self) -> Option<crate::Sequence> {
+        self.try_sequence().expect("context worker stopped")
+    }
+
+    pub fn sequence_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<crate::Sequence>, ContextError>> + Send + 'static {
         let request_id = self.next_checkout_id();
         let guard = Some(CheckoutGuard::new(self.clone(), request_id));
         let receiver = self.submit(|reply| Command::CheckoutSeq { request_id, reply });
@@ -850,59 +907,59 @@ impl Context {
 
         CheckoutFuture {
             inner: async move {
-                let reservation = receiver
-                    .expect("context worker stopped")
-                    .await
-                    .map_err(|_| ContextError::WorkerStopped)
-                    .and_then(|result| result)
-                    .expect("context worker stopped");
-                reservation.map(|reservation| crate::Sequence::new(context, reservation))
+                let receiver = receiver?;
+                let reservation = receiver.await.map_err(|_| ContextError::WorkerStopped)??;
+                Ok(reservation.map(|reservation| crate::Sequence::new(context, reservation)))
             },
             guard,
         }
     }
 
-    pub fn free_slots(&self) -> usize {
+    pub fn try_free_slots(&self) -> Result<usize, ContextError> {
         self.wait(|reply| Command::FreeSlots { reply })
-            .expect("context worker stopped")
     }
 
-    pub async fn free_slots_async(&self) -> usize {
-        self.wait_async(|reply| Command::FreeSlots { reply })
-            .await
-            .expect("context worker stopped")
+    pub fn free_slots(&self) -> usize {
+        self.try_free_slots().expect("context worker stopped")
+    }
+
+    pub async fn free_slots_async(&self) -> Result<usize, ContextError> {
+        self.wait_async(|reply| Command::FreeSlots { reply }).await
+    }
+
+    pub fn try_n_ctx(&self) -> Result<u32, ContextError> {
+        self.wait(|reply| Command::GetNCtx { reply })
     }
 
     pub fn n_ctx(&self) -> u32 {
-        self.wait(|reply| Command::GetNCtx { reply })
-            .expect("context worker stopped")
+        self.try_n_ctx().expect("context worker stopped")
     }
 
-    pub async fn n_ctx_async(&self) -> u32 {
-        self.wait_async(|reply| Command::GetNCtx { reply })
-            .await
-            .expect("context worker stopped")
+    pub async fn n_ctx_async(&self) -> Result<u32, ContextError> {
+        self.wait_async(|reply| Command::GetNCtx { reply }).await
+    }
+
+    pub fn try_can_shift(&self) -> Result<bool, ContextError> {
+        self.wait(|reply| Command::CanShift { reply })
     }
 
     pub fn can_shift(&self) -> bool {
-        self.wait(|reply| Command::CanShift { reply })
-            .expect("context worker stopped")
+        self.try_can_shift().expect("context worker stopped")
     }
 
-    pub async fn can_shift_async(&self) -> bool {
-        self.wait_async(|reply| Command::CanShift { reply })
-            .await
-            .expect("context worker stopped")
+    pub async fn can_shift_async(&self) -> Result<bool, ContextError> {
+        self.wait_async(|reply| Command::CanShift { reply }).await
+    }
+
+    pub fn try_perf(&self) -> Result<llama_perf_context_data, ContextError> {
+        self.wait(|reply| Command::GetPerf { reply })
     }
 
     pub fn perf(&self) -> llama_perf_context_data {
-        self.wait(|reply| Command::GetPerf { reply })
-            .expect("context worker stopped")
+        self.try_perf().expect("context worker stopped")
     }
 
-    pub async fn perf_async(&self) -> llama_perf_context_data {
-        self.wait_async(|reply| Command::GetPerf { reply })
-            .await
-            .expect("context worker stopped")
+    pub async fn perf_async(&self) -> Result<llama_perf_context_data, ContextError> {
+        self.wait_async(|reply| Command::GetPerf { reply }).await
     }
 }

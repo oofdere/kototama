@@ -10,21 +10,19 @@ fn context_with_copy_support() -> Context {
 }
 
 #[test]
-#[should_panic(expected = "sequence range out of bounds")]
 fn copy_to_rejects_out_of_bounds_range() {
     let ctx = context_with_copy_support();
     let src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();
 
-    src.copy_to(&mut dst, 0..1);
+    assert!(!src.copy_to(&mut dst, 0..1));
 }
 
 #[test]
-#[should_panic(expected = "sequence range out of bounds")]
 fn copy_to_async_rejects_out_of_bounds_range() {
     let ctx = context_with_copy_support();
     let src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();
 
-    pollster::block_on(src.copy_to_async(&mut dst, 0..1));
+    assert!(!pollster::block_on(src.copy_to_async(&mut dst, 0..1)).unwrap());
 }

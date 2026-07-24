@@ -1,5 +1,5 @@
 use crate::context::{SequenceReservation, SharedSequenceSnapshot};
-use crate::{Context, Sampler, Token};
+use crate::{Context, ContextError, DecodeError, Sampler, Token};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -16,6 +16,18 @@ pub struct Sequence {
     snapshot: SharedSequenceSnapshot,
 }
 
+#[derive(Debug, Clone)]
+pub enum SequenceError {
+    Context(ContextError),
+    Decode(DecodeError),
+}
+
+impl From<ContextError> for SequenceError {
+    fn from(error: ContextError) -> Self {
+        Self::Context(error)
+    }
+}
+
 impl Sequence {
     pub(crate) fn new(ctx: Context, reservation: SequenceReservation) -> Self {
         let (id, snapshot) = reservation.into_parts();
@@ -28,13 +40,9 @@ impl Sequence {
         Some(start..end)
     }
 
-    fn checked_copy_range(&self, range: Range<usize>) -> Range<i32> {
-        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
-        assert!(
-            range.start <= range.end && range.end as usize <= self.len(),
-            "sequence range out of bounds"
-        );
-        range
+    fn checked_copy_range(&self, range: Range<usize>) -> Option<Range<i32>> {
+        let range = Self::checked_range(range)?;
+        (range.start <= range.end && (range.end as usize) <= self.len()).then_some(range)
     }
 
     /// Returns the latest logits snapshot, if the sequence has been decoded.
@@ -52,11 +60,12 @@ impl Sequence {
             .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
     }
 
-    pub async fn push_async(&mut self, token: Token) {
+    pub async fn push_async(&mut self, token: Token) -> Result<(), SequenceError> {
         self.ctx
             .push_token_async(token, self.id, self.snapshot.clone())
-            .await
-            .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
+            .await?
+            .map(|_| ())
+            .map_err(SequenceError::Decode)
     }
 
     pub fn decode(&mut self) {
@@ -65,18 +74,19 @@ impl Sequence {
             .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
     }
 
-    pub async fn decode_async(&mut self) {
+    pub async fn decode_async(&mut self) -> Result<(), SequenceError> {
         self.ctx
             .decode_last_async(self.id, self.snapshot.clone())
-            .await
-            .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
+            .await?
+            .map(|_| ())
+            .map_err(SequenceError::Decode)
     }
 
     pub fn pop(&mut self) -> Option<Token> {
         self.ctx.pop(self.id, self.snapshot.clone())
     }
 
-    pub async fn pop_async(&mut self) -> Option<Token> {
+    pub async fn pop_async(&mut self) -> Result<Option<Token>, ContextError> {
         self.ctx.pop_async(self.id, self.snapshot.clone()).await
     }
 
@@ -94,10 +104,11 @@ impl Sequence {
     ///
     /// Cancellation may leave a decoded prefix, which is immediately visible
     /// through [`Sequence::tokens`] and [`Sequence::logits`].
-    pub async fn extend_async(&mut self, tokens: &[Token]) {
+    pub async fn extend_async(&mut self, tokens: &[Token]) -> Result<(), SequenceError> {
         for &token in tokens {
-            self.push_async(token).await;
+            self.push_async(token).await?;
         }
+        Ok(())
     }
 
     pub fn get(&self, index: usize) -> Option<Token> {
@@ -112,22 +123,24 @@ impl Sequence {
             .remove(self.id, range.start, range.end, self.snapshot.clone())
     }
 
-    pub async fn remove_async(&mut self, range: Range<usize>) -> bool {
+    pub async fn remove_async(&mut self, range: Range<usize>) -> Result<bool, ContextError> {
         let Some(range) = Self::checked_range(range) else {
-            return false;
+            return Ok(false);
         };
         self.ctx
             .remove_async(self.id, range.start, range.end, self.snapshot.clone())
             .await
     }
 
-    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
+    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) -> bool {
         assert!(
             self.ctx.same_worker(&other.ctx),
             "cannot copy sequences between different contexts"
         );
         assert_ne!(self.id, other.id, "cannot copy a sequence onto itself");
-        let range = self.checked_copy_range(range);
+        let Some(range) = self.checked_copy_range(range) else {
+            return false;
+        };
         self.ctx.copy(
             self.id,
             other.id,
@@ -135,16 +148,22 @@ impl Sequence {
             range.end,
             self.snapshot.clone(),
             other.snapshot.clone(),
-        );
+        )
     }
 
-    pub async fn copy_to_async(&self, other: &mut Self, range: Range<usize>) {
+    pub async fn copy_to_async(
+        &self,
+        other: &mut Self,
+        range: Range<usize>,
+    ) -> Result<bool, ContextError> {
         assert!(
             self.ctx.same_worker(&other.ctx),
             "cannot copy sequences between different contexts"
         );
         assert_ne!(self.id, other.id, "cannot copy a sequence onto itself");
-        let range = self.checked_copy_range(range);
+        let Some(range) = self.checked_copy_range(range) else {
+            return Ok(false);
+        };
         self.ctx
             .copy_async(
                 self.id,
@@ -154,15 +173,19 @@ impl Sequence {
                 self.snapshot.clone(),
                 other.snapshot.clone(),
             )
-            .await;
+            .await
     }
 
-    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
-        other.copy_to(self, range);
+    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) -> bool {
+        other.copy_to(self, range)
     }
 
-    pub async fn copy_from_async(&mut self, other: &Self, range: Range<usize>) {
-        other.copy_to_async(self, range).await;
+    pub async fn copy_from_async(
+        &mut self,
+        other: &Self,
+        range: Range<usize>,
+    ) -> Result<bool, ContextError> {
+        other.copy_to_async(self, range).await
     }
 
     pub fn pos_min(&self) -> i32 {

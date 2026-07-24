@@ -113,7 +113,6 @@ fn remove_rejects_unrepresentable_range() {
 }
 
 #[test]
-#[should_panic(expected = "sequence range exceeds llama_pos")]
 fn copy_rejects_unrepresentable_range() {
     let (model, _) = setup();
     let mut params = common::test_ctx_params();
@@ -121,7 +120,7 @@ fn copy_rejects_unrepresentable_range() {
     let ctx = Context::new(&model, &params).unwrap();
     let src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();
-    src.copy_to(&mut dst, usize::MAX..usize::MAX);
+    assert!(!src.copy_to(&mut dst, usize::MAX..usize::MAX));
 }
 
 #[test]
@@ -307,10 +306,12 @@ fn is_empty_consistent_with_len() {
     let (model, params) = setup();
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
-    assert_eq!(seq.is_empty(), seq.len() == 0);
+    assert!(seq.is_empty());
+    assert_eq!(seq.len(), 0);
     let tokens = model.tokenize("hello", false, false);
     seq.extend(&tokens);
-    assert_eq!(seq.is_empty(), seq.len() == 0);
+    assert!(!seq.is_empty());
+    assert_eq!(seq.len(), tokens.len());
 }
 
 // ---------- Sequence::sample() (moved from Context to Sequence in this PR) ----------

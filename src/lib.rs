@@ -13,7 +13,7 @@ mod backend;
 pub use backend::*;
 
 mod context;
-pub use context::{Context, ContextError, ContextParams, DecodeError};
+pub use context::{Context, ContextError, ContextInitError, ContextParams, DecodeError};
 
 mod samplers;
 pub use samplers::*;
