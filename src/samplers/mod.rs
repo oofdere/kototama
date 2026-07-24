@@ -1,9 +1,17 @@
-//! Sampling primitives.
+//! Rust-side sampling primitives.
 //!
 //! Each sampler implements [`Sampler`]. Logit-transforming samplers (e.g.
 //! [`Temperature`], [`TopK`], [`MinP`]) override [`Sampler::apply_mut`], while
 //! token-selecting samplers ([`Greedy`], [`Dist`]) override [`Sampler::sample`].
 //! A [`Chain`] composes several samplers into a pipeline.
+//!
+//! These samplers run in Rust on the thread that calls
+//! [`crate::Sequence::sample`], using an owned logits snapshot returned by the
+//! context worker. They are not llama.cpp's experimental native backend sampler
+//! chains stored in `llama_context_params::samplers`. Native backend samplers
+//! contain raw pointers and are rejected by the safe [`crate::Context::new`]
+//! constructor; configuring them requires [`crate::Context::new_unchecked`] and
+//! its documented safety contract.
 
 use crate::Token;
 

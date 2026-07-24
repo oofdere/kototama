@@ -223,6 +223,14 @@ impl Sequence {
         );
     }
 
+    /// Samples from the latest logits snapshot using a Rust [`Sampler`].
+    ///
+    /// Sampling runs synchronously on the caller's thread. The sampler receives
+    /// an owned snapshot of the logits; it is not moved to or retained by the
+    /// context worker. This API is unrelated to llama.cpp's experimental native
+    /// backend sampler chains in `llama_context_params::samplers`.
+    ///
+    /// Returns `None` until this sequence has produced logits.
     pub fn sample<S: Sampler>(&self, sampler: &mut S) -> Option<Token> {
         let logits = self.logits()?;
         Some(sampler.sample(&logits))
