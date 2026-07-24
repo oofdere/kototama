@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 env:
-  CARGO_TERM_COLOR: never
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
@@ -28,20 +28,33 @@ jobs:
 
       - name: Install stable Rust
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
+          rustc --version
+          cargo --version
 
-      - name: Capture compiler diagnostics
+      - name: Remove temporary files
+        run: rm -rf .github/review-fix .github/review-error.txt .github/build-error.txt
+
+      - name: Format
+        run: cargo fmt --all
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Build all targets
+        run: cargo build --all-targets --verbose
+
+      - name: Run tests
+        run: cargo test --verbose -- --test-threads=1
+
+      - name: Check len-zero lint
+        run: cargo clippy --all-targets -- -D clippy::len_zero
+
+      - name: Commit verified hardening
         run: |
-          set +e
-          cargo build --all-targets > /tmp/build.log 2>&1
-          status=$?
-          tail -n 240 /tmp/build.log > .github/build-error.txt
-          if [ "$status" -ne 0 ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/build-error.txt
-            git commit -m "record hardening compiler diagnostics"
-            git push
-          fi
-          exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- src tests .github/review-fix .github/review-error.txt .github/build-error.txt
+          git commit -m "harden worker initialization and async errors"
+          git push
