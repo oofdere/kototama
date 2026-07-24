@@ -18,6 +18,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.ref }}
+          show-progress: false
 
       - name: Apply review hardening
-        run: python .github/review-fix/apply.py
+        run: |
+          set +e
+          output=$(python .github/review-fix/apply.py 2>&1)
+          status=$?
+          printf '%s\n' "$output" | tail -n 1
+          exit $status
