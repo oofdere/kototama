@@ -20,15 +20,15 @@ jobs:
           submodules: recursive
           ref: ${{ github.event.pull_request.head.ref }}
 
+      - name: Apply review hardening
+        run: python .github/review-fix/apply.py
+
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
           rustc --version
           cargo --version
-
-      - name: Apply review hardening
-        run: python .github/review-fix/apply.py
 
       - name: Remove temporary transformation
         run: rm -rf .github/review-fix
