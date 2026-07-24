@@ -1,0 +1,1 @@
+        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
