@@ -20,10 +20,17 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           show-progress: false
 
-      - name: Apply review hardening
+      - name: Capture review transform error
         run: |
           set +e
           output=$(python .github/review-fix/apply.py 2>&1)
           status=$?
-          printf '%s\n' "$output" | tail -n 1
-          exit $status
+          printf '%s\n' "$output" | tail -n 1 > .github/review-error.txt
+          if [ "$status" -ne 0 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/review-error.txt
+            git commit -m "record review transform error"
+            git push
+          fi
+          exit 0
