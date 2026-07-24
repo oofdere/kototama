@@ -29,11 +29,12 @@ impl Sequence {
     }
 
     fn checked_copy_range(&self, range: Range<usize>) -> Range<i32> {
+        let range = Self::checked_range(range).expect("sequence range exceeds llama_pos");
         assert!(
-            range.start <= range.end && range.end <= self.len(),
+            range.start <= range.end && range.end as usize <= self.len(),
             "sequence range out of bounds"
         );
-        Self::checked_range(range).expect("sequence range exceeds llama_pos")
+        range
     }
 
     /// Returns the latest logits snapshot, if the sequence has been decoded.
