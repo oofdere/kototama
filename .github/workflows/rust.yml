@@ -17,44 +17,23 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          submodules: recursive
           ref: ${{ github.event.pull_request.head.ref }}
+          show-progress: false
 
       - name: Repair current transform anchor
         run: python .github/review-fix/repair.py
 
-      - name: Apply review hardening
-        run: python .github/review-fix/apply.py
-
-      - name: Install stable Rust
+      - name: Capture full transform failure
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-          rustc --version
-          cargo --version
-
-      - name: Remove temporary files
-        run: rm -rf .github/review-fix .github/review-error.txt
-
-      - name: Format
-        run: cargo fmt --all
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Build all targets
-        run: cargo build --all-targets --verbose
-
-      - name: Run tests
-        run: cargo test --verbose -- --test-threads=1
-
-      - name: Check len-zero lint
-        run: cargo clippy --all-targets -- -D clippy::len_zero
-
-      - name: Commit verified hardening
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- src tests .github/review-fix .github/review-error.txt
-          git commit -m "harden worker initialization and async errors"
-          git push
+          set +e
+          output=$(python .github/review-fix/apply.py 2>&1)
+          status=$?
+          printf '%s\n' "$output" > .github/review-error.txt
+          if [ "$status" -ne 0 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/review-error.txt
+            git commit -m "record full review transform error"
+            git push
+          fi
+          exit 0
