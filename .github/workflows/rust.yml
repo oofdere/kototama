@@ -1,12 +1,10 @@
 name: Rust
 
 on:
+  push:
+    branches: ["trunk"]
   pull_request:
     branches: ["trunk"]
-    types: [ready_for_review]
-
-permissions:
-  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,10 +17,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
-          ref: ${{ github.event.pull_request.head.ref }}
-
-      - name: Apply safety documentation
-        run: python .github/document-safety.py
+          persist-credentials: false
 
       - name: Install stable Rust
         run: |
@@ -30,9 +25,6 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
-
-      - name: Format
-        run: cargo fmt --all
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -47,14 +39,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose -- --test-threads=1
-
-      - name: Commit verified documentation
-        run: |
-          if git diff --quiet -- src/context.rs src/sequence.rs src/samplers/mod.rs; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/context.rs src/sequence.rs src/samplers/mod.rs
-          git commit -m "document context and sampler safety"
-          git push
