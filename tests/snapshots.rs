@@ -47,7 +47,7 @@ fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
     let mut seq = ctx.sequence().unwrap();
 
     let prompt_tokens = model.tokenize(prompt, true, false);
-    seq.extend(&prompt_tokens);
+    seq.extend(&prompt_tokens).unwrap();
 
     let mut generated = Vec::with_capacity(n_tokens);
     for _ in 0..n_tokens {
@@ -63,7 +63,7 @@ fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
             break;
         }
         generated.push(token);
-        seq.push(token);
+        seq.push(token).unwrap();
     }
     generated
 }

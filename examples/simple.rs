@@ -66,7 +66,7 @@ fn main() {
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
 
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
-    seq.extend(&prompt_tokens);
+    seq.extend(&prompt_tokens).expect("failed to decode prompt");
 
     // Print the prompt token-by-token
     for token in &prompt_tokens {
@@ -89,7 +89,10 @@ fn main() {
         }
         print!("{}", model.token_to_piece(token as i32).unwrap());
         std::io::stdout().flush().ok();
-        seq.push(token as i32);
+        if let Err(e) = seq.push(token as i32) {
+            eprintln!("\nstopping: {e:?}");
+            break;
+        }
     }
 
     println!();

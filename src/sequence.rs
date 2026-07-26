@@ -1,5 +1,5 @@
 use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
-use crate::{Context, Sampler, Token};
+use crate::{Context, DecodeError, Sampler, Token};
 use std::ops::{Index, Range};
 
 /// A sequence handle. No lifetime parameters — holds a clone of the Context
@@ -32,31 +32,35 @@ impl Sequence {
         self.tokens.is_empty()
     }
 
-    pub fn push(&mut self, token: i32) {
+    /// Decode `token` at the end of the sequence and cache the resulting logits.
+    ///
+    /// Returns [`DecodeError`] when llama.cpp cannot decode the token — most
+    /// commonly [`DecodeError::SlotNotFound`] once the sequence has filled the
+    /// context window. The sequence is left unchanged in that case.
+    pub fn push(&mut self, token: i32) -> Result<(), DecodeError> {
         let pos = self.tokens.len() as i32;
-        self.logits = Some(
-            self.ctx
-                .actor()
-                .push_token(token, pos, self.id)
-                .unwrap()
-                .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
-        );
+        let logits = self.ctx.actor().push_token(token, pos, self.id).unwrap()?;
+        self.logits = Some(logits);
         self.tokens.push(token);
+        Ok(())
     }
 
     /// Re-decode the last token to refresh logits without pushing a new one.
     /// Useful after `pop()`, `remove()`, or other mutations that invalidate logits.
-    pub fn decode(&mut self) {
-        if let Some(&last_token) = self.tokens.last() {
-            let pos = (self.tokens.len() - 1) as i32;
-            self.logits = Some(
-                self.ctx
-                    .actor()
-                    .push_token(last_token, pos, self.id)
-                    .unwrap()
-                    .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
-            );
-        }
+    ///
+    /// Decoding an empty sequence is a no-op.
+    pub fn decode(&mut self) -> Result<(), DecodeError> {
+        let Some(&last_token) = self.tokens.last() else {
+            return Ok(());
+        };
+        let pos = (self.tokens.len() - 1) as i32;
+        let logits = self
+            .ctx
+            .actor()
+            .push_token(last_token, pos, self.id)
+            .unwrap()?;
+        self.logits = Some(logits);
+        Ok(())
     }
 
     pub fn pop(&mut self) -> Option<i32> {
@@ -77,10 +81,13 @@ impl Sequence {
         self.tokens.len()
     }
 
-    pub fn extend(&mut self, tokens: &[i32]) {
+    /// Push every token in `tokens`, stopping at the first decode failure.
+    /// Tokens decoded before the failure stay in the sequence.
+    pub fn extend(&mut self, tokens: &[i32]) -> Result<(), DecodeError> {
         for &token in tokens {
-            self.push(token);
+            self.push(token)?;
         }
+        Ok(())
     }
 
     pub fn get(&self, index: usize) -> Option<i32> {

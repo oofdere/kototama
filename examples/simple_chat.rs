@@ -77,7 +77,7 @@ fn main() {
         // tokenize the prompt
         let tokens = model.tokenize(&prompt, is_first, true);
 
-        seq.extend(&tokens);
+        seq.extend(&tokens).expect("failed to decode prompt");
 
         let mut response = String::new();
         println!();
@@ -99,7 +99,10 @@ fn main() {
             print!("{}", piece);
             response.push_str(&piece);
 
-            seq.push(token);
+            if let Err(e) = seq.push(token) {
+                eprintln!("\nstopping: {e:?}");
+                break;
+            }
 
             if piece.contains('\n') {
                 break;
