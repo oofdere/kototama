@@ -43,6 +43,14 @@ impl Into<llama_sys::llama_model_params> for ModelParams {
     }
 }
 
+/// Errors returned by [`Model::try_tokenize`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenizeError {
+    /// The text contains a NUL byte at this index, which llama.cpp cannot
+    /// encode: it throws a C++ exception that would unwind into Rust.
+    InteriorNul(usize),
+}
+
 struct ModelInner {
     model: *mut llama_model,
     pub(crate) vocab: *const llama_vocab,
@@ -185,7 +193,41 @@ impl Model {
         Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
     }
 
+    /// Tokenize `text`, returning an error instead of letting llama.cpp abort
+    /// the process on input it cannot encode.
+    ///
+    /// A NUL byte is rejected: llama.cpp falls back to `byte_to_token`, which
+    /// looks the byte up as a one-character `std::string` — for NUL that string
+    /// is empty and never present in a vocab, so `unordered_map::at` throws
+    /// `std::out_of_range`. That C++ exception would unwind through the
+    /// `extern "C"` boundary into Rust, which is undefined behaviour and
+    /// aborts with "Rust cannot catch foreign exceptions".
+    pub fn try_tokenize(
+        &self,
+        text: &str,
+        add_special: bool,
+        parse_special: bool,
+    ) -> Result<Vec<i32>, TokenizeError> {
+        if let Some(pos) = text.as_bytes().iter().position(|&b| b == 0) {
+            return Err(TokenizeError::InteriorNul(pos));
+        }
+        Ok(self.tokenize_unchecked(text, add_special, parse_special))
+    }
+
+    /// Tokenize `text`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `text` contains a NUL byte; see [`Model::try_tokenize`] for a
+    /// non-panicking variant.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
+        match self.try_tokenize(text, add_special, parse_special) {
+            Ok(tokens) => tokens,
+            Err(e) => panic!("tokenize failed: {e:?}"),
+        }
+    }
+
+    fn tokenize_unchecked(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
         let len = -unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
