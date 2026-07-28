@@ -276,6 +276,13 @@ impl Context {
     }
 
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        // llama.cpp only rejects `n_batch == 0` when `n_ubatch` is zero as
+        // well; otherwise it derives `n_ubatch = min(n_batch, n_ubatch)` == 0
+        // and hits `GGML_ASSERT(n_outputs >= 1)` while reserving graphs, which
+        // aborts the process instead of returning an error.
+        if params.n_batch == 0 {
+            return Err(());
+        }
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());
