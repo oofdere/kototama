@@ -109,6 +109,9 @@ pub(crate) struct ContextActor {
     batch: Batch,
     n_vocab: i32,
     checked_out: Vec<bool>,
+    /// Keeps the `llama_model` backing `ctx` alive: llama.cpp contexts borrow
+    /// the model's tensors and are unusable once it is freed.
+    _model: Model,
 }
 
 unsafe impl Send for ContextActor {}
@@ -288,6 +291,7 @@ impl Context {
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
             checked_out: vec![false; n_seq_max],
+            _model: model.clone(),
         };
         let actor = actor_inner.start();
 
