@@ -54,7 +54,7 @@ fn get_add_bos() {
 fn get_score_bos() {
     let model = common::load_model();
     if let Some(bos) = model.bos_token() {
-        let score = model.get_score(bos);
+        let score = model.get_score(bos).expect("BOS is a valid token");
         assert!(score.is_finite());
     }
 }
@@ -63,7 +63,7 @@ fn get_score_bos() {
 fn get_text_bos_nonempty() {
     let model = common::load_model();
     if let Some(bos) = model.bos_token() {
-        let text = model.get_text(bos);
+        let text = model.get_text(bos).expect("BOS is a valid token");
         assert!(!text.to_bytes().is_empty());
     }
 }
