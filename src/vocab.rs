@@ -43,32 +43,56 @@ impl Model {
         unsafe { llama_vocab_get_add_sep(self.vocab_ptr()) }
     }
 
+    /// Whether `token` is a valid id for this vocabulary, i.e. in
+    /// `0..n_tokens()`. Token-indexed accessors reject anything else.
     #[inline]
-    pub fn get_attr(&self, token: i32) -> llama_token_attr {
-        unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
+    pub fn is_valid_token(&self, token: i32) -> bool {
+        token >= 0 && token < self.n_tokens()
     }
 
+    /// Attributes of `token`, or `None` if the id is out of range.
     #[inline]
-    pub fn get_score(&self, token: i32) -> f32 {
-        unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
-    }
-
-    #[inline]
-    pub fn get_text(&self, token: i32) -> &CStr {
-        unsafe {
-            let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
-            CStr::from_ptr(ptr)
+    pub fn get_attr(&self, token: i32) -> Option<llama_token_attr> {
+        if !self.is_valid_token(token) {
+            return None;
         }
+        Some(unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) })
     }
 
+    /// Score of `token`, or `None` if the id is out of range.
+    #[inline]
+    pub fn get_score(&self, token: i32) -> Option<f32> {
+        if !self.is_valid_token(token) {
+            return None;
+        }
+        Some(unsafe { llama_vocab_get_score(self.vocab_ptr(), token) })
+    }
+
+    /// Raw text of `token`, or `None` if the id is out of range.
+    #[inline]
+    pub fn get_text(&self, token: i32) -> Option<&CStr> {
+        if !self.is_valid_token(token) {
+            return None;
+        }
+        let ptr = unsafe { llama_vocab_get_text(self.vocab_ptr(), token) };
+        if ptr.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(ptr) })
+    }
+
+    /// Whether `token` is a control token. Out-of-range ids are not control
+    /// tokens.
     #[inline]
     pub fn is_control(&self, token: i32) -> bool {
-        unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
+        self.is_valid_token(token) && unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
     }
 
+    /// Whether `token` ends generation. Out-of-range ids are not end-of-generation
+    /// tokens.
     #[inline]
     pub fn is_eog(&self, token: i32) -> bool {
-        unsafe { llama_vocab_is_eog(self.vocab_ptr(), token) }
+        self.is_valid_token(token) && unsafe { llama_vocab_is_eog(self.vocab_ptr(), token) }
     }
 
     token_option!(mask_token, llama_vocab_mask);
