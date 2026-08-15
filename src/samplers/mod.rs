@@ -67,12 +67,14 @@ pub trait Sampler {
 }
 
 /// Pick the index of the largest logit, breaking ties towards the last.
+///
+/// `NaN` logits are ignored; token `0` is returned when there is no candidate
+/// to choose from (empty or all-`NaN` logits).
 pub(crate) fn argmax(logits: &[f32]) -> Token {
-    let (id, _) = logits
+    logits
         .iter()
         .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-        .unwrap();
-
-    id as i32
+        .filter(|(_, logit)| !logit.is_nan())
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map_or(0, |(id, _)| id as i32)
 }
