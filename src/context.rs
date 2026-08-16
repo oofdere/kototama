@@ -296,6 +296,11 @@ impl Context {
         })
     }
 
+    /// Whether both handles refer to the same underlying context actor.
+    pub fn is_same(&self, other: &Context) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     pub fn sequence(&self) -> Option<crate::Sequence> {
         let seq_id = self.actor().checkout_seq().unwrap();
         seq_id.map(|id| crate::Sequence::new(self.clone(), id))

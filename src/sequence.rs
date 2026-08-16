@@ -97,17 +97,28 @@ impl Sequence {
         }
     }
 
-    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
-        self.kv_copy(other, range.start as i32..range.end as i32);
+    /// Copy `range` of this sequence's tokens (and their KV entries) onto
+    /// `other`, replacing its contents.
+    ///
+    /// Returns `false` and changes nothing if `other` belongs to a different
+    /// [`Context`]: sequence ids are only meaningful within the context that
+    /// issued them.
+    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) -> bool {
+        if !self.kv_copy(other, range.start as i32..range.end as i32) {
+            return false;
+        }
         other.tokens.clear();
         other
             .tokens
             .extend_from_slice(&self.tokens[range.start..range.end]);
         other.logits = None;
+        true
     }
 
-    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
-        other.copy_to(self, range);
+    /// Replace this sequence's contents with `range` of `other`. See
+    /// [`Sequence::copy_to`].
+    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) -> bool {
+        other.copy_to(self, range)
     }
 
     pub fn pos_min(&self) -> i32 {
@@ -134,12 +145,21 @@ impl Sequence {
         ok
     }
 
-    pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) {
+    /// Copy the KV entries in `range` from this sequence to `other`, leaving
+    /// the token vectors untouched.
+    ///
+    /// Returns `false` and does nothing if `other` belongs to a different
+    /// [`Context`].
+    pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) -> bool {
+        if !self.ctx.is_same(&other.ctx) {
+            return false;
+        }
         self.ctx
             .actor()
             .memory_seq_cp(self.id, other.id, range.start, range.end)
             .unwrap();
         other.logits = None;
+        true
     }
 
     pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) {
