@@ -46,16 +46,34 @@ impl Sequence {
 
     /// Re-decode the last token to refresh logits without pushing a new one.
     /// Useful after `pop()`, `remove()`, or other mutations that invalidate logits.
-    pub fn decode(&mut self) {
-        if let Some(&last_token) = self.tokens.last() {
-            let pos = (self.tokens.len() - 1) as i32;
-            self.logits = Some(
-                self.ctx
-                    .actor()
-                    .push_token(last_token, pos, self.id)
-                    .unwrap()
-                    .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
-            );
+    ///
+    /// Returns `false` if the sequence is empty or the re-decode failed, in
+    /// which case the logits stay unavailable.
+    pub fn decode(&mut self) -> bool {
+        let Some(&last_token) = self.tokens.last() else {
+            return false;
+        };
+        let pos = (self.tokens.len() - 1) as i32;
+        // The last token already occupies `pos` in the KV cache, and llama.cpp
+        // rejects a batch whose positions do not continue from the last stored
+        // one, so evict the cached entry before decoding it again.
+        if !self.kv_remove(pos..pos + 1) {
+            return false;
+        }
+        match self
+            .ctx
+            .actor()
+            .push_token(last_token, pos, self.id)
+            .unwrap()
+        {
+            Ok(logits) => {
+                self.logits = Some(logits);
+                true
+            }
+            Err(_) => {
+                self.logits = None;
+                false
+            }
         }
     }
 
