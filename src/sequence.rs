@@ -87,14 +87,38 @@ impl Sequence {
         self.tokens.get(index).copied()
     }
 
+    /// Remove `range` (token indices) from the sequence and its KV cache.
+    ///
+    /// Returns `false` without touching the sequence when the range is invalid
+    /// for the current tokens, or when the KV cache cannot be updated.
     pub fn remove(&mut self, range: Range<usize>) -> bool {
-        if self.kv_remove(range.start as i32..range.end as i32) {
-            self.tokens.drain(range);
-            self.logits = None;
-            true
-        } else {
-            false
+        let len = self.tokens.len();
+        if range.start > range.end || range.end > len {
+            return false;
         }
+        if range.is_empty() {
+            return true;
+        }
+
+        // llama.cpp keeps absolute KV positions, so removing anything but a
+        // suffix requires shifting the tail down to preserve the
+        // `token index == KV position` invariant that `push` relies on.
+        let tail = range.end..len;
+        if !tail.is_empty() && !self.ctx.can_shift() {
+            return false;
+        }
+
+        if !self.kv_remove(range.start as i32..range.end as i32) {
+            return false;
+        }
+        if !tail.is_empty() {
+            let delta = -((range.end - range.start) as i32);
+            self.kv_shift(tail.start as i32..tail.end as i32, delta);
+        }
+
+        self.tokens.drain(range);
+        self.logits = None;
+        true
     }
 
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
