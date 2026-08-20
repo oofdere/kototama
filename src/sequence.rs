@@ -97,17 +97,40 @@ impl Sequence {
         }
     }
 
-    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
-        self.kv_copy(other, range.start as i32..range.end as i32);
+    /// Replace `other`'s contents with `range` of this sequence, rebasing the
+    /// copied KV entries to positions `0..range.len()`.
+    ///
+    /// Returns `false` without touching either sequence if `range` is invalid
+    /// for this sequence or if the context memory cannot shift positions.
+    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) -> bool {
+        if range.start > range.end || range.end > self.tokens.len() {
+            return false;
+        }
+        if range.start > 0 && !self.ctx.can_shift() {
+            return false;
+        }
+
+        // `other` is replaced wholesale, so evict its current entries
+        // (negative bounds mean "the whole sequence").
+        if !other.kv_remove(-1..-1) {
+            return false;
+        }
+
+        let start = range.start as i32;
+        let end = range.end as i32;
+        self.kv_copy(other, start..end);
+        if start > 0 {
+            other.kv_shift(start..end, -start);
+        }
+
         other.tokens.clear();
-        other
-            .tokens
-            .extend_from_slice(&self.tokens[range.start..range.end]);
+        other.tokens.extend_from_slice(&self.tokens[range]);
         other.logits = None;
+        true
     }
 
-    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
-        other.copy_to(self, range);
+    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) -> bool {
+        other.copy_to(self, range)
     }
 
     pub fn pos_min(&self) -> i32 {
