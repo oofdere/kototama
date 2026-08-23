@@ -100,6 +100,21 @@ fn token_to_piece_bos() {
 }
 
 #[test]
+fn token_to_piece_handles_pieces_longer_than_64_bytes() {
+    let model = common::load_model();
+    let mut max_len = 0;
+
+    for token in 0..model.n_tokens() {
+        let piece = model
+            .token_to_piece(token)
+            .unwrap_or_else(|_| panic!("valid token {token} should have a piece"));
+        max_len = max_len.max(piece.len());
+    }
+
+    assert!(max_len > 64, "expected a token piece longer than 64 bytes");
+}
+
+#[test]
 fn decoder_start_token_none_for_decoder_only() {
     let model = common::load_model();
     assert!(model.decoder_start_token().is_none());
