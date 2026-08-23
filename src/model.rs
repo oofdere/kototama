@@ -179,10 +179,32 @@ impl Model {
                 true,
             )
         };
+        if n >= 0 {
+            return buf
+                .get(..n as usize)
+                .map(|piece| String::from_utf8_lossy(piece).to_string())
+                .ok_or(());
+        }
+
+        let required = n.checked_abs().ok_or(())?;
+        let mut buf = vec![0u8; required as usize];
+        let n = unsafe {
+            llama_sys::llama_token_to_piece(
+                self.inner.vocab,
+                token,
+                buf.as_mut_ptr() as *mut i8,
+                required,
+                0,
+                true,
+            )
+        };
         if n < 0 {
             return Err(());
         }
-        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+
+        buf.get(..n as usize)
+            .map(|piece| String::from_utf8_lossy(piece).to_string())
+            .ok_or(())
     }
 
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
