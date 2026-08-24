@@ -139,7 +139,9 @@ fn main() {
         .rustified_non_exhaustive_enum("llama_rope_scaling_type")
         .rustified_non_exhaustive_enum("llama_rope_type")
         .rustified_non_exhaustive_enum("llama_split_mode")
-        .rustified_non_exhaustive_enum("llama_token_attr")
+        // llama_token_attr is a bitmask: llama.cpp combines flags (e.g.
+        // CONTROL | RSTRIP), so a Rust enum representation would be UB.
+        .bitfield_enum("llama_token_attr")
         .rustified_non_exhaustive_enum("llama_token_type")
         .rustified_non_exhaustive_enum("llama_vocab_type")
         .rustified_non_exhaustive_enum("ggml_op_pool")
