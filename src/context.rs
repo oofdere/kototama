@@ -86,7 +86,7 @@ pub(crate) trait ContextProtocol: Send + Sync {
         dst: llama_seq_id,
         p0: llama_pos,
         p1: llama_pos,
-    ) -> Response<()>;
+    ) -> Response<bool>;
     fn memory_seq_add(
         &self,
         seq_id: llama_seq_id,
@@ -108,6 +108,7 @@ pub(crate) struct ContextActor {
     ctx: *mut llama_context,
     batch: Batch,
     n_vocab: i32,
+    kv_unified: bool,
     checked_out: Vec<bool>,
 }
 
@@ -201,8 +202,16 @@ impl Handler<MemorySeqRm> for ContextActor {
 }
 
 impl Handler<MemorySeqCp> for ContextActor {
-    fn handle(&mut self, msg: MemorySeqCp, _ctx: &ActorContext<Self>) {
-        unsafe { llama_memory_seq_cp(self.get_memory(), msg.src, msg.dst, msg.p0, msg.p1) }
+    fn handle(&mut self, msg: MemorySeqCp, _ctx: &ActorContext<Self>) -> bool {
+        // With a non-unified KV cache each sequence owns a stream, and llama.cpp
+        // only implements cross-stream copies for whole sequences: any positional
+        // range that does not span the whole cache trips `GGML_ASSERT(is_full)`
+        // and aborts the process. Whole sequences are spelled with negative bounds.
+        if !self.kv_unified && msg.src != msg.dst && !(msg.p0 <= 0 && msg.p1 < 0) {
+            return false;
+        }
+        unsafe { llama_memory_seq_cp(self.get_memory(), msg.src, msg.dst, msg.p0, msg.p1) };
+        true
     }
 }
 
@@ -252,6 +261,7 @@ impl Handler<GetPerf> for ContextActor {
 
 struct ContextInner {
     actor: ActorRef<ContextActor>,
+    kv_unified: bool,
 }
 
 impl Drop for ContextInner {
@@ -283,17 +293,28 @@ impl Context {
         let n_seq_max = params.n_seq_max as usize;
         let n_vocab = model.n_tokens();
 
+        let kv_unified = params.kv_unified;
         let actor_inner = ContextActor {
             ctx,
             batch: Batch::init_token(1, params.n_seq_max as i32),
             n_vocab,
+            kv_unified,
             checked_out: vec![false; n_seq_max],
         };
         let actor = actor_inner.start();
 
         Ok(Self {
-            inner: Arc::new(ContextInner { actor }),
+            inner: Arc::new(ContextInner { actor, kv_unified }),
         })
+    }
+
+    /// Whether this context was created with a unified KV cache.
+    ///
+    /// Sequences in a non-unified cache each own a KV stream, and llama.cpp can
+    /// only copy whole sequences between streams, so [`crate::Sequence::copy_to`]
+    /// rejects partial ranges there.
+    pub fn kv_unified(&self) -> bool {
+        self.inner.kv_unified
     }
 
     pub fn sequence(&self) -> Option<crate::Sequence> {

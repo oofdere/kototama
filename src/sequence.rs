@@ -97,17 +97,40 @@ impl Sequence {
         }
     }
 
-    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
-        self.kv_copy(other, range.start as i32..range.end as i32);
+    /// Copy `range` of this sequence's tokens (and their KV entries) onto
+    /// `other`, replacing its contents.
+    ///
+    /// Returns `false` and changes nothing if `range` is not a valid range of
+    /// this sequence, or if the copy is not supported by the context's KV cache:
+    /// with a non-unified cache (the default) only whole-sequence copies work,
+    /// see [`crate::Context::kv_unified`].
+    pub fn copy_to(&self, other: &mut Self, range: Range<usize>) -> bool {
+        if range.start > range.end || range.end > self.tokens.len() {
+            return false;
+        }
+
+        // Spell a whole-sequence copy with negative bounds: that is the only
+        // form llama.cpp supports when the sequences live in separate KV streams.
+        let bounds = if range.start == 0 && range.end == self.tokens.len() {
+            -1..-1
+        } else {
+            range.start as i32..range.end as i32
+        };
+
+        if !self.kv_copy(other, bounds) {
+            return false;
+        }
+
         other.tokens.clear();
-        other
-            .tokens
-            .extend_from_slice(&self.tokens[range.start..range.end]);
+        other.tokens.extend_from_slice(&self.tokens[range]);
         other.logits = None;
+        true
     }
 
-    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) {
-        other.copy_to(self, range);
+    /// Replace this sequence's contents with `range` of `other`. See
+    /// [`Sequence::copy_to`].
+    pub fn copy_from(&mut self, other: &Self, range: Range<usize>) -> bool {
+        other.copy_to(self, range)
     }
 
     pub fn pos_min(&self) -> i32 {
@@ -134,12 +157,22 @@ impl Sequence {
         ok
     }
 
-    pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) {
-        self.ctx
+    /// Copy the KV entries in `range` from this sequence to `other`, leaving the
+    /// token vectors untouched. Negative bounds mean "the whole sequence".
+    ///
+    /// Returns `false` and does nothing when the context's KV cache cannot
+    /// perform the copy: sequences of a non-unified cache own separate streams,
+    /// and llama.cpp only copies whole sequences across streams.
+    pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) -> bool {
+        let ok = self
+            .ctx
             .actor()
             .memory_seq_cp(self.id, other.id, range.start, range.end)
             .unwrap();
-        other.logits = None;
+        if ok {
+            other.logits = None;
+        }
+        ok
     }
 
     pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) {
