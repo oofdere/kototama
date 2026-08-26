@@ -77,7 +77,7 @@ fn main() {
         // tokenize the prompt
         let tokens = model.tokenize(&prompt, is_first, true);
 
-        seq.extend(&tokens);
+        seq.extend(&tokens).unwrap();
 
         let mut response = String::new();
         println!();
@@ -99,7 +99,7 @@ fn main() {
             print!("{}", piece);
             response.push_str(&piece);
 
-            seq.push(token);
+            seq.push(token).unwrap();
 
             if piece.contains('\n') {
                 break;

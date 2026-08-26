@@ -1,5 +1,5 @@
 use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
-use crate::{Context, Sampler, Token};
+use crate::{Context, DecodeError, Sampler, Token};
 use std::ops::{Index, Range};
 
 /// A sequence handle. No lifetime parameters — holds a clone of the Context
@@ -32,16 +32,18 @@ impl Sequence {
         self.tokens.is_empty()
     }
 
-    pub fn push(&mut self, token: i32) {
+    /// Decode `token` at the end of the sequence.
+    ///
+    /// Returns the decode error without modifying the sequence when llama.cpp
+    /// refuses the token — most commonly [`DecodeError::SlotNotFound`], which
+    /// is what a full KV cache looks like once the sequence reaches the
+    /// context size.
+    pub fn push(&mut self, token: i32) -> Result<(), DecodeError> {
         let pos = self.tokens.len() as i32;
-        self.logits = Some(
-            self.ctx
-                .actor()
-                .push_token(token, pos, self.id)
-                .unwrap()
-                .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
-        );
+        let logits = self.ctx.actor().push_token(token, pos, self.id).unwrap()?;
+        self.logits = Some(logits);
         self.tokens.push(token);
+        Ok(())
     }
 
     /// Re-decode the last token to refresh logits without pushing a new one.
@@ -77,10 +79,13 @@ impl Sequence {
         self.tokens.len()
     }
 
-    pub fn extend(&mut self, tokens: &[i32]) {
+    /// Push every token in order, stopping at the first failure. The tokens
+    /// decoded before that point stay in the sequence.
+    pub fn extend(&mut self, tokens: &[i32]) -> Result<(), DecodeError> {
         for &token in tokens {
-            self.push(token);
+            self.push(token)?;
         }
+        Ok(())
     }
 
     pub fn get(&self, index: usize) -> Option<i32> {
