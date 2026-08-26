@@ -42,7 +42,7 @@ fn bench_decode_single_token(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut seq = ctx.sequence().unwrap();
-                seq.push(seed_token);
+                seq.push(seed_token).unwrap();
                 seq
             },
             |mut seq| {
@@ -54,7 +54,7 @@ fn bench_decode_single_token(c: &mut Criterion) {
                     .max_by(|(_, a), (_, b)| a.total_cmp(b))
                     .map(|(i, _)| i as i32)
                     .unwrap();
-                seq.push(black_box(token));
+                seq.push(black_box(token)).unwrap();
                 seq
             },
             criterion::BatchSize::PerIteration,
@@ -76,7 +76,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut seq = ctx.sequence().unwrap();
-                seq.extend(&prompt_tokens);
+                seq.extend(&prompt_tokens).unwrap();
                 seq
             },
             |mut seq| {
@@ -92,7 +92,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
                     if model.is_eog(token) {
                         break;
                     }
-                    seq.push(black_box(token));
+                    seq.push(black_box(token)).unwrap();
                 }
                 seq
             },
@@ -124,7 +124,7 @@ fn bench_sequence_extend(c: &mut Criterion) {
         b.iter_batched(
             || ctx.sequence().unwrap(),
             |mut seq| {
-                seq.extend(black_box(&tokens));
+                seq.extend(black_box(&tokens)).unwrap();
                 seq
             },
             criterion::BatchSize::PerIteration,

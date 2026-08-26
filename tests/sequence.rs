@@ -13,7 +13,7 @@ fn push_increases_len() {
     let mut seq = ctx.sequence().unwrap();
     assert_eq!(seq.len(), 0);
     let tokens = model.tokenize("hi", false, false);
-    seq.push(tokens[0]);
+    seq.push(tokens[0]).unwrap();
     assert_eq!(seq.len(), 1);
 }
 
@@ -24,7 +24,7 @@ fn extend_fills_tokens() {
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello world", false, false);
     let n = tokens.len();
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert_eq!(seq.len(), n);
 }
 
@@ -34,7 +34,7 @@ fn tokens_accessor_matches_push_order() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("abc", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert_eq!(seq.tokens(), tokens.as_slice());
 }
 
@@ -44,7 +44,7 @@ fn index_operator() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert_eq!(seq[0], tokens[0]);
 }
 
@@ -54,7 +54,7 @@ fn get_returns_token() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert_eq!(seq.get(0), Some(tokens[0]));
     assert_eq!(seq.get(999), None);
 }
@@ -65,7 +65,7 @@ fn pop_decreases_len() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     let len_before = seq.len();
     let popped = seq.pop();
     assert!(popped.is_some());
@@ -86,7 +86,7 @@ fn logits_len_equals_vocab_size_after_push() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
-    seq.push(tokens[0]);
+    seq.push(tokens[0]).unwrap();
     assert_eq!(seq.logits().unwrap().len(), model.n_tokens() as usize);
 }
 
@@ -97,7 +97,7 @@ fn remove_range() {
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello world", false, false);
     let n = tokens.len();
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert_eq!(seq.len(), n);
     seq.remove(0..1);
     assert_eq!(seq.len(), n - 1);
@@ -111,7 +111,7 @@ fn pos_min_max_after_push() {
     assert_eq!(seq.pos_min(), -1);
     assert_eq!(seq.pos_max(), -1);
     let tokens = model.tokenize("hello", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert!(seq.pos_min() >= 0);
     assert!(seq.pos_max() >= seq.pos_min());
 }
@@ -125,8 +125,8 @@ fn copy_to() {
     let mut src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
-    src.extend(&tokens);
-    dst.extend(&tokens);
+    src.extend(&tokens).unwrap();
+    dst.extend(&tokens).unwrap();
     src.copy_to(&mut dst, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
 }
@@ -139,8 +139,8 @@ fn multiple_sequences_independent() {
     let mut seq2 = ctx.sequence().unwrap();
     let tokens1 = model.tokenize("hello", false, false);
     let tokens2 = model.tokenize("world", false, false);
-    seq1.extend(&tokens1);
-    seq2.extend(&tokens2);
+    seq1.extend(&tokens1).unwrap();
+    seq2.extend(&tokens2).unwrap();
     assert_eq!(seq1.tokens(), tokens1.as_slice());
     assert_eq!(seq2.tokens(), tokens2.as_slice());
     assert_ne!(seq1.tokens(), seq2.tokens());
@@ -154,8 +154,8 @@ fn multiple_sequences_generate_different_logits() {
     let mut seq2 = ctx.sequence().unwrap();
     let tokens1 = model.tokenize("hello", false, false);
     let tokens2 = model.tokenize("world", false, false);
-    seq1.extend(&tokens1);
-    seq2.extend(&tokens2);
+    seq1.extend(&tokens1).unwrap();
+    seq2.extend(&tokens2).unwrap();
     assert_ne!(seq1.logits().unwrap(), seq2.logits().unwrap());
 }
 
@@ -204,8 +204,8 @@ fn copy_from() {
     let mut src = ctx.sequence().unwrap();
     let mut dst = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
-    src.extend(&tokens);
-    dst.extend(&tokens);
+    src.extend(&tokens).unwrap();
+    dst.extend(&tokens).unwrap();
     dst.copy_from(&src, 0..tokens.len());
     assert_eq!(dst.tokens(), src.tokens());
 }
@@ -226,7 +226,7 @@ fn is_empty_false_after_push() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hi", false, false);
-    seq.push(tokens[0]);
+    seq.push(tokens[0]).unwrap();
     assert!(!seq.is_empty(), "sequence should not be empty after a push");
 }
 
@@ -236,7 +236,7 @@ fn is_empty_false_after_extend() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert!(!seq.is_empty());
 }
 
@@ -248,7 +248,7 @@ fn is_empty_true_after_pop_clears_sequence() {
     let tokens = model.tokenize("hi", false, false);
     // push exactly one token then pop it — sequence should be empty again
     for &t in &tokens {
-        seq.push(t);
+        seq.push(t).unwrap();
     }
     for _ in 0..tokens.len() {
         seq.pop();
@@ -266,7 +266,7 @@ fn is_empty_consistent_with_len() {
     let mut seq = ctx.sequence().unwrap();
     assert_eq!(seq.is_empty(), seq.len() == 0);
     let tokens = model.tokenize("hello", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert_eq!(seq.is_empty(), seq.len() == 0);
 }
 
@@ -278,7 +278,7 @@ fn sequence_sample_greedy_is_valid_token() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
 
     let mut greedy = Greedy::new();
     let token = seq.sample(&mut greedy).unwrap();
@@ -294,7 +294,7 @@ fn sequence_sample_matches_argmax() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("once upon", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
 
     let argmax = seq
         .logits()
@@ -320,7 +320,7 @@ fn sequence_sample_with_temperature_in_vocab_range() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello world", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
 
     let mut temp = Temperature::new(0.8);
     let mut dist = Dist::new(123);
@@ -340,7 +340,7 @@ fn sequence_sample_does_not_require_mut() {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("test", false, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
 
     let mut greedy = Greedy::new();
 
