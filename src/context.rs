@@ -280,14 +280,14 @@ impl Context {
         if ctx.is_null() {
             return Err(());
         }
-        let n_seq_max = params.n_seq_max as usize;
+        let n_seq_max = unsafe { llama_n_seq_max(ctx) };
         let n_vocab = model.n_tokens();
 
         let actor_inner = ContextActor {
             ctx,
-            batch: Batch::init_token(1, params.n_seq_max as i32),
+            batch: Batch::init_token(1, n_seq_max as i32),
             n_vocab,
-            checked_out: vec![false; n_seq_max],
+            checked_out: vec![false; n_seq_max as usize],
         };
         let actor = actor_inner.start();
 
