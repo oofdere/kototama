@@ -26,6 +26,17 @@ fn free_slots_starts_full() {
 }
 
 #[test]
+fn zero_n_seq_max_uses_llama_default_slot() {
+    let (model, mut params) = common::load_model_and_context();
+    params.n_seq_max = 0;
+
+    let ctx = Context::new(&model, &params).unwrap();
+
+    assert_eq!(ctx.free_slots(), 1);
+    assert!(ctx.sequence().is_some());
+}
+
+#[test]
 fn sequence_checkout_reduces_free_slots() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
