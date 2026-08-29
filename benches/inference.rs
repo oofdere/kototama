@@ -20,7 +20,7 @@ fn bench_tokenize(c: &mut Criterion) {
     let model = load_model();
     let prompt = "The quick brown fox jumps over the lazy dog.";
     c.bench_function("tokenize", |b| {
-        b.iter(|| model.tokenize(black_box(prompt), false, false))
+        b.iter(|| model.tokenize(black_box(prompt), false, false).unwrap())
     });
 }
 
@@ -66,7 +66,7 @@ fn bench_generate_10_tokens(c: &mut Criterion) {
     let model = load_model();
     let ctx_params = make_ctx_params();
     let ctx = Context::new(&model, &ctx_params).unwrap();
-    let prompt_tokens = model.tokenize("Once upon a time", true, false);
+    let prompt_tokens = model.tokenize("Once upon a time", true, false).unwrap();
     assert!(
         !prompt_tokens.is_empty(),
         "tokenize must produce at least one token with add_bos=true"

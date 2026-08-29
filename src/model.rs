@@ -185,31 +185,59 @@ impl Model {
         Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
     }
 
-    pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
-        let len = -unsafe {
-            llama_sys::llama_tokenize(
-                self.inner.vocab,
-                text.as_ptr() as *const i8,
-                text.len() as i32,
-                std::ptr::null_mut(),
-                0,
-                add_special,
-                parse_special,
-            )
-        };
-        let mut tokens = vec![0i32; len as usize];
-        let n_tokens = unsafe {
-            llama_sys::llama_tokenize(
-                self.inner.vocab,
-                text.as_ptr() as *const i8,
-                text.len() as i32,
-                tokens.as_mut_ptr(),
-                tokens.len() as i32,
-                add_special,
-                parse_special,
-            )
-        };
-        tokens.truncate(n_tokens as usize);
-        tokens
+    pub fn tokenize(
+        &self,
+        text: &str,
+        add_special: bool,
+        parse_special: bool,
+    ) -> Result<Vec<i32>, TokenizeError> {
+        let len = -self.raw_tokenize(text, null_mut(), 0, add_special, parse_special)?;
+        let mut tokens = vec![0i32; len.max(0) as usize];
+        let n_tokens = self.raw_tokenize(
+            text,
+            tokens.as_mut_ptr(),
+            tokens.len() as i32,
+            add_special,
+            parse_special,
+        )?;
+        tokens.truncate(n_tokens.max(0) as usize);
+        Ok(tokens)
     }
+
+    fn raw_tokenize(
+        &self,
+        text: &str,
+        tokens: *mut i32,
+        n_tokens_max: i32,
+        add_special: bool,
+        parse_special: bool,
+    ) -> Result<i32, TokenizeError> {
+        let mut n_tokens = 0;
+        let ok = unsafe {
+            llama_sys::rusty_llama_tokenize(
+                self.inner.vocab,
+                text.as_ptr() as *const c_char,
+                text.len() as i32,
+                tokens,
+                n_tokens_max,
+                add_special,
+                parse_special,
+                &mut n_tokens,
+            )
+        };
+
+        if ok {
+            Ok(n_tokens)
+        } else {
+            Err(TokenizeError::Unrepresentable)
+        }
+    }
+}
+
+/// Errors returned by [`Model::tokenize`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenizeError {
+    /// The vocabulary has no token for part of the text and no byte fallback
+    /// token to encode it with.
+    Unrepresentable,
 }

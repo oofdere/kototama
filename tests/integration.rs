@@ -17,7 +17,7 @@ fn load_model_invalid_path_returns_err() {
 #[test]
 fn tokenize_empty_with_bos_gives_bos() {
     let model = common::load_model();
-    let tokens = model.tokenize("", true, false);
+    let tokens = model.tokenize("", true, false).unwrap();
     assert_eq!(
         tokens.len(),
         1,
@@ -29,8 +29,12 @@ fn tokenize_empty_with_bos_gives_bos() {
 #[test]
 fn tokenize_deterministic() {
     let model = common::load_model();
-    let a = model.tokenize("the cat sat on the mat", false, false);
-    let b = model.tokenize("the cat sat on the mat", false, false);
+    let a = model
+        .tokenize("the cat sat on the mat", false, false)
+        .unwrap();
+    let b = model
+        .tokenize("the cat sat on the mat", false, false)
+        .unwrap();
     assert_eq!(a, b, "tokenization should be deterministic");
 }
 
@@ -42,7 +46,7 @@ fn greedy_sample_matches_argmax() {
     let ctx = Context::new(&model, &params).unwrap();
 
     let mut seq = ctx.sequence().unwrap();
-    let tokens = model.tokenize("Once upon a time", true, false);
+    let tokens = model.tokenize("Once upon a time", true, false).unwrap();
     seq.extend(&tokens);
 
     let mut argmax = 0i32;
@@ -69,7 +73,7 @@ fn sample_with_temperature_does_not_crash() {
     let ctx = Context::new(&model, &params).unwrap();
 
     let mut seq = ctx.sequence().unwrap();
-    let tokens = model.tokenize("hello", true, false);
+    let tokens = model.tokenize("hello", true, false).unwrap();
     seq.extend(&tokens);
 
     let mut temp = Temperature::new(0.8);
@@ -89,8 +93,8 @@ fn two_sequences_independent() {
     let mut seq_a = ctx.sequence().unwrap();
     let mut seq_b = ctx.sequence().unwrap();
 
-    let tokens_a = model.tokenize("hello", true, false);
-    let tokens_b = model.tokenize("world", true, false);
+    let tokens_a = model.tokenize("hello", true, false).unwrap();
+    let tokens_b = model.tokenize("world", true, false).unwrap();
     seq_a.extend(&tokens_a);
     seq_b.extend(&tokens_b);
 
@@ -125,7 +129,7 @@ fn greedy_generation_is_deterministic() {
     let generate = || {
         let ctx = Context::new(&model, &params).unwrap();
         let mut seq = ctx.sequence().unwrap();
-        let prompt = model.tokenize("the", true, false);
+        let prompt = model.tokenize("the", true, false).unwrap();
         seq.extend(&prompt);
 
         let mut tokens = Vec::new();
