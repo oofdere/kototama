@@ -67,22 +67,35 @@ fn not_recurrent() {
 #[test]
 fn tokenize_nonempty_text() {
     let model = common::load_model();
-    let tokens = model.tokenize("hello world", true, false);
+    let tokens = model.tokenize("hello world", true, false).unwrap();
     assert!(!tokens.is_empty());
 }
 
 #[test]
 fn tokenize_empty_text() {
     let model = common::load_model();
-    let tokens = model.tokenize("", false, false);
+    let tokens = model.tokenize("", false, false).unwrap();
     assert!(tokens.is_empty());
+}
+
+#[test]
+fn tokenize_unrepresentable_text_errors() {
+    let model = common::load_model();
+    // The test vocab has no token for this character and no byte fallback
+    // token to encode its bytes with, which makes llama.cpp throw.
+    assert_eq!(
+        model.tokenize("😀", false, false),
+        Err(rusty_llama::TokenizeError::Unrepresentable)
+    );
+    // The model stays usable afterwards.
+    assert!(!model.tokenize("hello", false, false).unwrap().is_empty());
 }
 
 #[test]
 fn tokenize_roundtrip() {
     let model = common::load_model();
     let text = " Hello, world!";
-    let tokens = model.tokenize(text, false, false);
+    let tokens = model.tokenize(text, false, false).unwrap();
     let reconstructed: String = tokens
         .iter()
         .map(|&t| model.token_to_piece(t).unwrap())
@@ -128,8 +141,8 @@ fn model_clone_has_same_n_tokens() {
 fn model_clone_can_tokenize() {
     let model = common::load_model();
     let cloned = model.clone();
-    let tokens_orig = model.tokenize("hello world", false, false);
-    let tokens_clone = cloned.tokenize("hello world", false, false);
+    let tokens_orig = model.tokenize("hello world", false, false).unwrap();
+    let tokens_clone = cloned.tokenize("hello world", false, false).unwrap();
     assert_eq!(
         tokens_orig, tokens_clone,
         "cloned model should produce identical tokenization"
@@ -180,6 +193,6 @@ fn model_original_drop_does_not_affect_clone() {
     };
     // Clone should still be usable
     assert!(cloned.n_tokens() > 0);
-    let tokens = cloned.tokenize("test", false, false);
+    let tokens = cloned.tokenize("test", false, false).unwrap();
     assert!(!tokens.is_empty());
 }

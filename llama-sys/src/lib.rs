@@ -15,3 +15,22 @@
 #![allow(rustdoc::bare_urls)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+extern "C" {
+    /// [`llama_tokenize`] wrapped in a C++ `try`/`catch`.
+    ///
+    /// llama.cpp throws `std::out_of_range` when the vocabulary cannot encode a
+    /// byte of the input, and letting a C++ exception unwind into Rust aborts
+    /// the process. Returns `false` if an exception was caught, otherwise stores
+    /// the `llama_tokenize` return value in `n_tokens_out`.
+    pub fn rusty_llama_tokenize(
+        vocab: *const llama_vocab,
+        text: *const ::std::os::raw::c_char,
+        text_len: i32,
+        tokens: *mut llama_token,
+        n_tokens_max: i32,
+        add_special: bool,
+        parse_special: bool,
+        n_tokens_out: *mut i32,
+    ) -> bool;
+}

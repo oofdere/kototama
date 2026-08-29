@@ -75,7 +75,7 @@ fn main() {
         let is_first = seq.is_empty();
 
         // tokenize the prompt
-        let tokens = model.tokenize(&prompt, is_first, true);
+        let tokens = model.tokenize(&prompt, is_first, true).unwrap();
 
         seq.extend(&tokens);
 

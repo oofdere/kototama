@@ -47,6 +47,16 @@ fn main() {
 
     let dst = config.build();
 
+    // Catches C++ exceptions thrown by llama.cpp before they can unwind into
+    // Rust. Must be linked before llama, whose symbols it depends on.
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file("shim/tokenize.cpp")
+        .include("llama.cpp/include")
+        .include("llama.cpp/ggml/include")
+        .compile("rusty-llama-shim");
+
     // Link the libraries (order matters - dependencies after dependents)
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=llama");
@@ -89,6 +99,7 @@ fn main() {
 
     // Rebuild triggers
     println!("cargo:rerun-if-changed=llama.cpp/");
+    println!("cargo:rerun-if-changed=shim/tokenize.cpp");
 
     // Generate bindings with all necessary includes
     let bindings = bindgen::Builder::default()

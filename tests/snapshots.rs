@@ -10,28 +10,30 @@ use rusty_llama::Context;
 #[test]
 fn snapshot_tokenize_hello_world() {
     let model = common::load_model();
-    let tokens = model.tokenize("Hello, world!", false, false);
+    let tokens = model.tokenize("Hello, world!", false, false).unwrap();
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_tokenize_with_bos() {
     let model = common::load_model();
-    let tokens = model.tokenize("Hello, world!", true, false);
+    let tokens = model.tokenize("Hello, world!", true, false).unwrap();
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_tokenize_multiline() {
     let model = common::load_model();
-    let tokens = model.tokenize("line one\nline two\nline three", false, false);
+    let tokens = model
+        .tokenize("line one\nline two\nline three", false, false)
+        .unwrap();
     insta::assert_yaml_snapshot!(tokens);
 }
 
 #[test]
 fn snapshot_tokenize_numbers() {
     let model = common::load_model();
-    let tokens = model.tokenize("1, 2, 3, 4, 5", false, false);
+    let tokens = model.tokenize("1, 2, 3, 4, 5", false, false).unwrap();
     insta::assert_yaml_snapshot!(tokens);
 }
 
@@ -46,7 +48,7 @@ fn greedy_generate(prompt: &str, n_tokens: usize) -> Vec<i32> {
     let ctx = Context::new(&model, &params).unwrap();
     let mut seq = ctx.sequence().unwrap();
 
-    let prompt_tokens = model.tokenize(prompt, true, false);
+    let prompt_tokens = model.tokenize(prompt, true, false).unwrap();
     seq.extend(&prompt_tokens);
 
     let mut generated = Vec::with_capacity(n_tokens);

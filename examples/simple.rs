@@ -48,7 +48,7 @@ fn main() {
     }
 
     // Tokenize the prompt
-    let prompt_tokens = model.tokenize(&prompt, true, true);
+    let prompt_tokens = model.tokenize(&prompt, true, true).unwrap();
     let n_prompt = prompt_tokens.len();
 
     // Initialize the context
