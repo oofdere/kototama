@@ -100,6 +100,21 @@ fn token_to_piece_bos() {
 }
 
 #[test]
+fn token_to_piece_out_of_range_is_err() {
+    let model = common::load_model();
+    let n_tokens = model.n_tokens();
+
+    // Out-of-range ids used to reach llama.cpp, where `id_to_token.at(id)`
+    // throws std::out_of_range across the C ABI and aborts the process.
+    assert!(model.token_to_piece(n_tokens).is_err());
+    assert!(model.token_to_piece(i32::MAX).is_err());
+    assert!(model.token_to_piece(-1).is_err());
+    assert!(model.token_to_piece(i32::MIN).is_err());
+
+    assert!(model.token_to_piece(n_tokens - 1).is_ok());
+}
+
+#[test]
 fn decoder_start_token_none_for_decoder_only() {
     let model = common::load_model();
     assert!(model.decoder_start_token().is_none());
