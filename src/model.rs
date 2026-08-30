@@ -167,7 +167,13 @@ impl Model {
         unsafe { llama_model_is_recurrent(self.inner.model) }
     }
 
+    /// Render `token` as text. Returns `Err(())` if `token` is not a valid id
+    /// for this model's vocabulary.
     pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
+        if token < 0 || token >= self.n_tokens() {
+            return Err(());
+        }
+
         let mut buf = [0u8; 64];
         let n = unsafe {
             llama_sys::llama_token_to_piece(
