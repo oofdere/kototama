@@ -103,8 +103,18 @@ impl Model {
         self.inner.vocab
     }
 
+    /// Chat template stored in the model metadata, either the default one
+    /// (`name` is `None`) or the variant named `name`.
+    ///
+    /// Returns `None` when the model has no such template. A `name` containing
+    /// an interior NUL byte cannot name a GGUF key, so it has no template
+    /// either.
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
-        let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
+        let name_cstr = match name.map(std::ffi::CString::new) {
+            Some(Ok(cstr)) => Some(cstr),
+            Some(Err(_)) => return None,
+            None => None,
+        };
         let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
         let str = unsafe { llama_model_chat_template(self.inner.model, name_ptr) };
         if str.is_null() {
