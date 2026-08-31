@@ -111,6 +111,13 @@ fn chat_template_default() {
     let _ = model.chat_template(None);
 }
 
+#[test]
+fn chat_template_name_with_interior_nul_is_none() {
+    let model = common::load_model();
+    assert!(model.chat_template(Some("tool_use\0")).is_none());
+    assert!(model.chat_template(Some("a\0b")).is_none());
+}
+
 // ---------- Clone (Arc-backed Model) ----------
 
 #[test]
