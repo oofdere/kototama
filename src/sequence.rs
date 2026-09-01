@@ -142,12 +142,43 @@ impl Sequence {
         other.logits = None;
     }
 
-    pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) {
+    /// Shift the KV positions in `range` by `delta`, leaving the token vector
+    /// untouched.
+    ///
+    /// Returns `false` and does nothing when the shift cannot be performed:
+    /// when the context does not support position shifts (llama.cpp aborts the
+    /// process on the next decode in that case), or when it would move a
+    /// position out of the valid `0..=i32::MAX` range — llama.cpp silently drops
+    /// the KV entries that end up negative, which leaves the sequence unusable
+    /// because its tokens no longer match the cached positions.
+    pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) -> bool {
+        if delta == 0 {
+            return true;
+        }
+        if !self.ctx.can_shift() {
+            return false;
+        }
+
+        // llama.cpp clamps a negative start to 0 and only moves the cells inside
+        // the range, so the extreme positions a shift can touch are bounded by
+        // the range and by the positions the sequence actually holds.
+        let (pos_min, pos_max) = (self.pos_min(), self.pos_max());
+        if pos_min >= 0 {
+            let lowest = range.start.max(0).max(pos_min);
+            if lowest.checked_add(delta).is_none_or(|pos| pos < 0) {
+                return false;
+            }
+            if pos_max.checked_add(delta).is_none() {
+                return false;
+            }
+        }
+
         self.ctx
             .actor()
             .memory_seq_add(self.id, range.start, range.end, delta)
             .unwrap();
         self.logits = None;
+        true
     }
 
     pub fn sample<S: Sampler>(&self, sampler: &mut S) -> Option<Token> {

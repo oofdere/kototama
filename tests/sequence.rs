@@ -349,3 +349,74 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&mut greedy).unwrap();
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+#[test]
+fn kv_shift_rejects_moving_positions_below_zero() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", true, false);
+    seq.extend(&tokens);
+    let pos_max = seq.pos_max();
+
+    // Shifting the whole sequence down by one would push position 0 below zero;
+    // llama.cpp drops that KV entry, so the sequence could no longer be decoded.
+    assert!(!seq.kv_shift(0..seq.len() as i32, -1));
+    assert_eq!(
+        seq.pos_max(),
+        pos_max,
+        "rejected shift must not touch the KV cache"
+    );
+
+    // The sequence is still usable.
+    seq.push(tokens[0]);
+    assert_eq!(seq.len(), tokens.len() + 1);
+}
+
+#[test]
+fn kv_shift_rejects_positions_overflowing_i32() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", true, false);
+    seq.extend(&tokens);
+    let pos_max = seq.pos_max();
+
+    assert!(!seq.kv_shift(0..seq.len() as i32, i32::MAX));
+    assert_eq!(seq.pos_max(), pos_max);
+}
+
+#[test]
+fn kv_shift_applies_in_range_shift() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", true, false);
+    seq.extend(&tokens);
+    let (pos_min, pos_max) = (seq.pos_min(), seq.pos_max());
+
+    assert!(seq.kv_shift(0..seq.len() as i32, 2));
+    assert_eq!(seq.pos_min(), pos_min + 2);
+    assert_eq!(seq.pos_max(), pos_max + 2);
+    assert!(seq.logits().is_none(), "shifting invalidates cached logits");
+
+    // A zero shift is always a no-op.
+    assert!(seq.kv_shift(0..seq.len() as i32, 0));
+    assert_eq!(seq.pos_max(), pos_max + 2);
+}
+
+#[test]
+fn kv_shift_of_suffix_only_moves_that_suffix() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", true, false);
+    assert!(tokens.len() >= 3);
+    seq.extend(&tokens);
+    let (pos_min, pos_max) = (seq.pos_min(), seq.pos_max());
+
+    // The shifted cells all sit above zero, so a negative shift is fine here.
+    assert!(seq.kv_shift(2..seq.len() as i32, -1));
+    assert_eq!(seq.pos_min(), pos_min);
+    assert_eq!(seq.pos_max(), pos_max - 1);
+}
