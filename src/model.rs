@@ -173,7 +173,7 @@ impl Model {
             llama_sys::llama_token_to_piece(
                 self.inner.vocab,
                 token,
-                buf.as_mut_ptr() as *mut i8,
+                buf.as_mut_ptr() as *mut c_char,
                 buf.len() as i32,
                 0,
                 true,
@@ -189,7 +189,7 @@ impl Model {
         let len = -unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
-                text.as_ptr() as *const i8,
+                text.as_ptr() as *const c_char,
                 text.len() as i32,
                 std::ptr::null_mut(),
                 0,
@@ -201,7 +201,7 @@ impl Model {
         let n_tokens = unsafe {
             llama_sys::llama_tokenize(
                 self.inner.vocab,
-                text.as_ptr() as *const i8,
+                text.as_ptr() as *const c_char,
                 text.len() as i32,
                 tokens.as_mut_ptr(),
                 tokens.len() as i32,
