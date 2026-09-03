@@ -9,6 +9,25 @@ fn context_new_ok() {
 }
 
 #[test]
+fn context_new_zero_batch_is_err() {
+    let (model, mut params) = common::load_model_and_context();
+    params.n_batch = 0;
+    assert!(Context::new(&model, &params).is_err());
+
+    params.n_ubatch = 0;
+    assert!(Context::new(&model, &params).is_err());
+}
+
+#[test]
+fn context_new_zero_ubatch_is_ok() {
+    let (model, mut params) = common::load_model_and_context();
+    params.n_ubatch = 0;
+    let ctx = Context::new(&model, &params).expect("n_ubatch = 0 means \"use n_batch\"");
+    let mut seq = ctx.sequence().unwrap();
+    seq.push(model.tokenize("hello", true, false)[0]);
+}
+
+#[test]
 fn n_ctx_at_least_params() {
     let (model, params) = common::load_model_and_context();
     let ctx = Context::new(&model, &params).unwrap();
