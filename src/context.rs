@@ -276,6 +276,12 @@ impl Context {
     }
 
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        // A logical batch size of zero yields a zero micro-batch size, which makes
+        // llama.cpp abort the process while reserving graphs instead of failing.
+        if params.n_batch == 0 {
+            return Err(());
+        }
+
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());
