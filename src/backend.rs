@@ -22,7 +22,6 @@ impl Backend {
 impl Drop for Backend {
     fn drop(&mut self) {
         if BACKEND_HANDLES.fetch_sub(1, Ordering::SeqCst) == 1 {
-            println!("Freeing backend");
             unsafe { llama_sys::llama_backend_free() };
         }
     }
