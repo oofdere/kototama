@@ -275,7 +275,12 @@ impl Context {
         &self.inner.actor
     }
 
+    /// Fails if llama.cpp rejects the parameters or if `model` was loaded
+    /// with `vocab_only` (no weights, so the context could never decode).
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        if model.is_vocab_only() {
+            return Err(());
+        }
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());
