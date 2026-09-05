@@ -46,6 +46,7 @@ impl Into<llama_sys::llama_model_params> for ModelParams {
 struct ModelInner {
     model: *mut llama_model,
     pub(crate) vocab: *const llama_vocab,
+    vocab_only: bool,
     _backend: Backend,
 }
 
@@ -74,6 +75,7 @@ impl Model {
     pub fn load_from_file(path: &str, params: ModelParams) -> Result<Self, ()> {
         let _backend = Backend::acquire();
         let path = std::ffi::CString::new(path).map_err(|_| ())?;
+        let vocab_only = params.vocab_only;
         let model = unsafe { llama_model_load_from_file(path.as_ptr(), params.into()) };
 
         if model.is_null() {
@@ -86,6 +88,7 @@ impl Model {
             inner: Arc::new(ModelInner {
                 model,
                 vocab,
+                vocab_only,
                 _backend,
             }),
         })
@@ -101,6 +104,13 @@ impl Model {
 
     pub(crate) fn vocab_ptr(&self) -> *const llama_vocab {
         self.inner.vocab
+    }
+
+    /// Whether the model was loaded with `vocab_only`, i.e. without weights.
+    /// Such a model can tokenize but cannot back a [`crate::Context`].
+    #[inline]
+    pub fn is_vocab_only(&self) -> bool {
+        self.inner.vocab_only
     }
 
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
