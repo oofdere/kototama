@@ -42,6 +42,17 @@ impl DerefMut for ContextParams {
     }
 }
 
+/// Whether `t` can back a KV cache. llama.cpp only validates quantized cache
+/// types itself; integer and 64-bit float types slip through and abort or
+/// segfault inside ggml on the first decode.
+fn is_supported_kv_cache_type(t: ggml_type) -> bool {
+    match t {
+        ggml_type::GGML_TYPE_F32 | ggml_type::GGML_TYPE_F16 | ggml_type::GGML_TYPE_BF16 => true,
+        ggml_type::GGML_TYPE_COUNT => false,
+        _ => unsafe { ggml_is_quantized(t) },
+    }
+}
+
 // -- Error type --
 
 #[derive(Debug, Clone)]
@@ -276,6 +287,12 @@ impl Context {
     }
 
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        if !is_supported_kv_cache_type(params.type_k) {
+            return Err(());
+        }
+        if !is_supported_kv_cache_type(params.type_v) {
+            return Err(());
+        }
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());
