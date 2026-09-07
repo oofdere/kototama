@@ -276,6 +276,11 @@ impl Context {
     }
 
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        if params.n_threads > GGML_MAX_N_THREADS as i32
+            || params.n_threads_batch > GGML_MAX_N_THREADS as i32
+        {
+            return Err(());
+        }
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());
