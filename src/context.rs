@@ -275,7 +275,13 @@ impl Context {
         &self.inner.actor
     }
 
+    /// Fails if llama.cpp rejects the parameters or if `model` was loaded
+    /// with `no_alloc` (its weight buffers are dummies, so backend setup and
+    /// decoding would dereference invalid tensor data).
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
+        if model.is_no_alloc() {
+            return Err(());
+        }
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
             return Err(());

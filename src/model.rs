@@ -46,6 +46,7 @@ impl Into<llama_sys::llama_model_params> for ModelParams {
 struct ModelInner {
     model: *mut llama_model,
     pub(crate) vocab: *const llama_vocab,
+    no_alloc: bool,
     _backend: Backend,
 }
 
@@ -74,7 +75,15 @@ impl Model {
     pub fn load_from_file(path: &str, params: ModelParams) -> Result<Self, ()> {
         let _backend = Backend::acquire();
         let path = std::ffi::CString::new(path).map_err(|_| ())?;
-        let model = unsafe { llama_model_load_from_file(path.as_ptr(), params.into()) };
+        let mut raw = params.0;
+        let no_alloc = raw.no_alloc;
+        if no_alloc {
+            // llama.cpp asserts `!no_alloc` on the mmap-backed weight-buffer
+            // path in load_tensors. A no_alloc load is metadata-only, so
+            // there is no tensor data for mmap to back.
+            raw.use_mmap = false;
+        }
+        let model = unsafe { llama_model_load_from_file(path.as_ptr(), raw) };
 
         if model.is_null() {
             return Err(());
@@ -86,6 +95,7 @@ impl Model {
             inner: Arc::new(ModelInner {
                 model,
                 vocab,
+                no_alloc,
                 _backend,
             }),
         })
@@ -101,6 +111,14 @@ impl Model {
 
     pub(crate) fn vocab_ptr(&self) -> *const llama_vocab {
         self.inner.vocab
+    }
+
+    /// Whether the model was loaded with `no_alloc`, i.e. without real weight
+    /// buffers. Such a model still exposes metadata and the vocab, but its
+    /// tensors are dummy allocations, so it cannot back a [`crate::Context`].
+    #[inline]
+    pub fn is_no_alloc(&self) -> bool {
+        self.inner.no_alloc
     }
 
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
