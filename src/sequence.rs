@@ -1,4 +1,4 @@
-use crate::context::{context_protocol, ContextProtocol, SamplerPtr};
+use crate::context::context_protocol::*;
 use crate::{Context, Sampler, Token};
 use std::ops::{Index, Range};
 
@@ -36,8 +36,11 @@ impl Sequence {
         let pos = self.tokens.len() as i32;
         self.logits = Some(
             self.ctx
-                .actor()
-                .push_token(token, pos, self.id)
+                .request(PushToken {
+                    token,
+                    pos,
+                    seq_id: self.id,
+                })
                 .unwrap()
                 .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
         );
@@ -51,8 +54,11 @@ impl Sequence {
             let pos = (self.tokens.len() - 1) as i32;
             self.logits = Some(
                 self.ctx
-                    .actor()
-                    .push_token(last_token, pos, self.id)
+                    .request(PushToken {
+                        token: last_token,
+                        pos,
+                        seq_id: self.id,
+                    })
                     .unwrap()
                     .unwrap_or_else(|e| panic!("decode failed: {e:?}")),
             );
@@ -111,11 +117,15 @@ impl Sequence {
     }
 
     pub fn pos_min(&self) -> i32 {
-        self.ctx.actor().memory_seq_pos_min(self.id).unwrap()
+        self.ctx
+            .request(MemorySeqPosMin { seq_id: self.id })
+            .unwrap()
     }
 
     pub fn pos_max(&self) -> i32 {
-        self.ctx.actor().memory_seq_pos_max(self.id).unwrap()
+        self.ctx
+            .request(MemorySeqPosMax { seq_id: self.id })
+            .unwrap()
     }
 
     pub fn tokens(&self) -> &[i32] {
@@ -125,8 +135,11 @@ impl Sequence {
     pub fn kv_remove(&mut self, range: Range<i32>) -> bool {
         let ok = self
             .ctx
-            .actor()
-            .memory_seq_rm(self.id, range.start, range.end)
+            .request(MemorySeqRm {
+                seq_id: self.id,
+                p0: range.start,
+                p1: range.end,
+            })
             .unwrap();
         if ok {
             self.logits = None;
@@ -136,16 +149,24 @@ impl Sequence {
 
     pub fn kv_copy(&self, other: &mut Self, range: Range<i32>) {
         self.ctx
-            .actor()
-            .memory_seq_cp(self.id, other.id, range.start, range.end)
+            .request(MemorySeqCp {
+                src: self.id,
+                dst: other.id,
+                p0: range.start,
+                p1: range.end,
+            })
             .unwrap();
         other.logits = None;
     }
 
     pub fn kv_shift(&mut self, range: Range<i32>, delta: i32) {
         self.ctx
-            .actor()
-            .memory_seq_add(self.id, range.start, range.end, delta)
+            .request(MemorySeqAdd {
+                seq_id: self.id,
+                p0: range.start,
+                p1: range.end,
+                delta,
+            })
             .unwrap();
         self.logits = None;
     }
@@ -167,9 +188,6 @@ impl Index<usize> for Sequence {
 
 impl Drop for Sequence {
     fn drop(&mut self) {
-        let _ = self
-            .ctx
-            .actor()
-            .request(context_protocol::ReleaseSeq { seq_id: self.id });
+        let _ = self.ctx.request(ReleaseSeq { seq_id: self.id });
     }
 }
