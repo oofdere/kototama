@@ -2,6 +2,8 @@ use llama_sys::*;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
+use spawned_concurrency::error::ActorError;
+use spawned_concurrency::message::Message;
 use spawned_concurrency::protocol;
 use spawned_concurrency::threads::{Actor, ActorRef, ActorStart, Context as ActorContext, Handler};
 use spawned_concurrency::Response;
@@ -68,6 +70,10 @@ unsafe impl Send for SamplerPtr {}
 //
 // All generated types live in the `context_protocol` module.
 
+// The generated helper methods block on `ActorRef::request`, which gives up
+// after `DEFAULT_REQUEST_TIMEOUT`. Requests are always issued through
+// `Context::request` instead, which waits for the reply.
+#[allow(dead_code)]
 #[protocol]
 pub(crate) trait ContextProtocol: Send + Sync {
     fn checkout_seq(&self) -> Response<Option<llama_seq_id>>;
@@ -275,6 +281,19 @@ impl Context {
         &self.inner.actor
     }
 
+    /// Send `msg` to the actor and block until it replies.
+    ///
+    /// A single `llama_decode` can take arbitrarily long — big prompts, big
+    /// models, slow CPUs — so requests must not be given a deadline.
+    pub(crate) fn request<M>(&self, msg: M) -> Result<M::Result, ActorError>
+    where
+        ContextActor: Handler<M>,
+        M: Message,
+    {
+        let rx = self.actor().request_raw(msg)?;
+        rx.recv().map_err(|_| ActorError::ActorStopped)
+    }
+
     pub fn new(model: &Model, params: &ContextParams) -> Result<Self, ()> {
         let ctx = unsafe { llama_init_from_model(model.as_mut_ptr(), params.0) };
         if ctx.is_null() {
@@ -297,23 +316,23 @@ impl Context {
     }
 
     pub fn sequence(&self) -> Option<crate::Sequence> {
-        let seq_id = self.actor().checkout_seq().unwrap();
+        let seq_id = self.request(CheckoutSeq).unwrap();
         seq_id.map(|id| crate::Sequence::new(self.clone(), id))
     }
 
     pub fn free_slots(&self) -> usize {
-        self.actor().free_slots().unwrap()
+        self.request(FreeSlots).unwrap()
     }
 
     pub fn n_ctx(&self) -> u32 {
-        self.actor().get_n_ctx().unwrap()
+        self.request(GetNCtx).unwrap()
     }
 
     pub fn can_shift(&self) -> bool {
-        self.actor().can_shift().unwrap()
+        self.request(CanShift).unwrap()
     }
 
     pub fn perf(&self) -> llama_perf_context_data {
-        self.actor().get_perf().unwrap()
+        self.request(GetPerf).unwrap()
     }
 }
