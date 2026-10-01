@@ -38,13 +38,14 @@ fn main() {
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
 
-    // initialize the samplers (applied manually: min_p -> temp -> dist)
-    let mut minp = MinP::new(0.05, 1);
-    let mut temp = Temperature::new(0.8);
-    let mut dist = Dist::new(llama_sys::LLAMA_DEFAULT_SEED as u64);
+    // initialize the sampler chain (min_p -> temp -> dist)
+    let mut sampler = Chain::new()
+        .with(MinP::new(0.05, 1))
+        .with(Temperature::new(0.8))
+        .with(Dist::new(llama_sys::LLAMA_DEFAULT_SEED as u64));
 
     let mut messages: Vec<Message> = Vec::new();
-    fn format(messages: &Vec<Message>) -> String {
+    fn format(messages: &[Message]) -> String {
         let mut s = messages
             .iter()
             .map(|m| match m {
@@ -77,16 +78,15 @@ fn main() {
         // tokenize the prompt
         let tokens = model.tokenize(&prompt, is_first, true);
 
-        seq.extend(&tokens);
+        seq.extend(&tokens).expect("failed to decode prompt");
 
         let mut response = String::new();
         println!();
         loop {
-            // sample the next token (min_p -> temp -> dist)
-            let logits = seq.logits().expect("no logits");
-            let l = minp.apply(logits);
-            let l = temp.apply(&l);
-            let token = dist.sample(&l);
+            // sample the next token through the chain: min_p -> temp -> dist
+            let token = seq
+                .sample(&mut sampler)
+                .expect("no logits");
 
             // is it an end of generation?
             if model.is_eog(token) {
@@ -99,7 +99,7 @@ fn main() {
             print!("{}", piece);
             response.push_str(&piece);
 
-            seq.push(token);
+            seq.push(token).expect("decode failed");
 
             if piece.contains('\n') {
                 break;

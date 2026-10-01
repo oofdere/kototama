@@ -36,7 +36,7 @@ fn main() {
         config.define("LLAMA_CUDA", "ON");
     }
 
-    #[cfg(all(target_os = "macos"))]
+    #[cfg(target_os = "macos")]
     {
         config.define("GGML_METAL", "ON");
         config.define("GGML_METAL_NDEBUG", "ON");

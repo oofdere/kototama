@@ -320,3 +320,54 @@ fn chain_empty_is_greedy() {
     let token = chain.sample(&[0.1, 0.9, 0.5]);
     assert_eq!(token, 1);
 }
+
+// ---------- Chain: each sampler applied exactly once ----------
+
+use std::cell::Cell;
+use std::rc::Rc;
+
+/// Sampler that records how many times its transform ran, in a counter the
+/// test can read after the sampler is boxed into a [`Chain`].
+struct CountingSampler {
+    runs: Rc<Cell<usize>>,
+}
+
+impl CountingSampler {
+    fn new(runs: Rc<Cell<usize>>) -> Self {
+        Self { runs }
+    }
+}
+
+impl Sampler for CountingSampler {
+    fn apply_mut(&mut self, logits: &mut [f32]) {
+        self.runs.set(self.runs.get() + 1);
+        for logit in logits.iter_mut() {
+            *logit *= 2.0;
+        }
+    }
+}
+
+#[test]
+fn chain_sample_applies_each_transform_once() {
+    let first_runs = Rc::new(Cell::new(0));
+    let last_runs = Rc::new(Cell::new(0));
+    let mut chain = Chain::new()
+        .with(CountingSampler::new(first_runs.clone()))
+        .with(CountingSampler::new(last_runs.clone()));
+
+    let logits = [1.0, 3.0, 2.0];
+    let token = chain.sample(&logits);
+
+    assert_eq!(
+        first_runs.get(),
+        1,
+        "every sampler except the last must transform exactly once"
+    );
+    assert_eq!(
+        last_runs.get(),
+        1,
+        "the last sampler must apply its transform exactly once too"
+    );
+    // argmax is preserved by doubling, so the selection is still index 1.
+    assert_eq!(token, 1);
+}

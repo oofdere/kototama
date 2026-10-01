@@ -1,30 +1,42 @@
-use crate::Backend;
-use llama_sys::*;
-use std::{
-    ffi::c_char,
-    ops::{Deref, DerefMut},
-    ptr::{null, null_mut},
-    sync::Arc,
-};
+//! Model loading and vocabulary queries.
 
-pub struct ModelParams(pub llama_sys::llama_model_params);
+use std::ffi::{c_char, CStr, CString};
+use std::ops::{Deref, DerefMut};
+use std::ptr::{null, null_mut};
+use std::sync::Arc;
+
+use llama_sys::*;
+
+use crate::{Backend, Error};
+
+/// Parameters for [`Model::load_from_file`], mirroring `llama_model_params`.
+///
+/// Derefs to the raw `llama_model_params`, so fields can be set directly:
+///
+/// ```
+/// use rusty_llama::ModelParams;
+///
+/// let mut params = ModelParams::new();
+/// params.n_gpu_layers = 99;
+/// ```
+#[repr(transparent)]
+pub struct ModelParams(llama_model_params);
 
 impl ModelParams {
+    /// Defaults from `llama_model_default_params`.
     pub fn new() -> Self {
-        Self(unsafe { llama_sys::llama_model_default_params() })
+        Self(unsafe { llama_model_default_params() })
     }
+}
 
-    pub fn as_ptr(&self) -> *const llama_sys::llama_model_params {
-        &self.0
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut llama_sys::llama_model_params {
-        &mut self.0
+impl Default for ModelParams {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl Deref for ModelParams {
-    type Target = llama_sys::llama_model_params;
+    type Target = llama_model_params;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -37,15 +49,16 @@ impl DerefMut for ModelParams {
     }
 }
 
-impl Into<llama_sys::llama_model_params> for ModelParams {
-    fn into(self) -> llama_sys::llama_model_params {
-        self.0
+impl From<ModelParams> for llama_model_params {
+    fn from(params: ModelParams) -> Self {
+        params.0
     }
 }
 
 struct ModelInner {
     model: *mut llama_model,
-    pub(crate) vocab: *const llama_vocab,
+    vocab: *const llama_vocab,
+    // Held so the backend stays initialized for as long as the model lives.
     _backend: Backend,
 }
 
@@ -62,24 +75,27 @@ impl Drop for ModelInner {
     }
 }
 
-/// Thread-safe handle to a loaded model.
+/// A loaded model. Cheap to clone; all clones share one `llama_model`.
 ///
-/// Cloning is cheap (Arc bump). Use from any thread.
+/// Besides loading, this type is the vocabulary: tokenization, detokenization,
+/// and special-token queries all live here.
 #[derive(Clone)]
 pub struct Model {
     inner: Arc<ModelInner>,
 }
 
 impl Model {
-    pub fn load_from_file(path: &str, params: ModelParams) -> Result<Self, ()> {
+    /// Load a GGUF model from `path`.
+    ///
+    /// The [`Backend`] is acquired automatically and released when the last
+    /// clone of the model is dropped.
+    pub fn load_from_file(path: &str, params: ModelParams) -> Result<Self, Error> {
         let _backend = Backend::acquire();
-        let path = std::ffi::CString::new(path).map_err(|_| ())?;
+        let path = CString::new(path).map_err(|_| Error::InvalidPath)?;
         let model = unsafe { llama_model_load_from_file(path.as_ptr(), params.into()) };
-
         if model.is_null() {
-            return Err(());
+            return Err(Error::ModelLoadFailed);
         }
-
         let vocab = unsafe { llama_model_get_vocab(model) };
 
         Ok(Self {
@@ -91,30 +107,27 @@ impl Model {
         })
     }
 
+    /// Raw pointer to the underlying `llama_model`.
     pub fn as_ptr(&self) -> *const llama_model {
         self.inner.model
     }
 
-    pub(crate) fn as_mut_ptr(&self) -> *mut llama_model {
-        self.inner.model
-    }
-
-    pub(crate) fn vocab_ptr(&self) -> *const llama_vocab {
-        self.inner.vocab
-    }
-
+    /// The model's chat template, or `None` when it has none.
+    ///
+    /// `name` selects a named template; `None` uses the default one.
     pub fn chat_template(&self, name: Option<&str>) -> Option<String> {
-        let name_cstr = name.map(|s| std::ffi::CString::new(s).unwrap());
+        let name_cstr = name.map(|s| CString::new(s).unwrap());
         let name_ptr = name_cstr.as_ref().map(|s| s.as_ptr()).unwrap_or(null());
         let str = unsafe { llama_model_chat_template(self.inner.model, name_ptr) };
         if str.is_null() {
             None
         } else {
-            let cstr = unsafe { std::ffi::CStr::from_ptr(str) };
-            Some(cstr.to_string_lossy().to_string())
+            let cstr = unsafe { CStr::from_ptr(str) };
+            Some(cstr.to_string_lossy().into_owned())
         }
     }
 
+    /// Human-readable model description (`llama_model_desc`).
     pub fn desc(&self) -> String {
         let needed = unsafe { llama_model_desc(self.inner.model, null_mut(), 0) };
         if needed <= 0 {
@@ -132,45 +145,45 @@ impl Model {
         String::from_utf8_lossy(&buf[..written]).into_owned()
     }
 
-    #[inline]
+    /// `true` when the model needs `llama_decode` to produce output.
     pub fn has_decoder(&self) -> bool {
         unsafe { llama_model_has_decoder(self.inner.model) }
     }
 
-    #[inline]
+    /// Start-of-generation token for encoder-decoder models.
     pub fn decoder_start_token(&self) -> Option<i32> {
         let token = unsafe { llama_model_decoder_start_token(self.inner.model) };
-        if token == LLAMA_TOKEN_NULL {
-            None
-        } else {
-            Some(token)
-        }
+        (token != LLAMA_TOKEN_NULL).then_some(token)
     }
 
-    #[inline]
+    /// `true` when the model has an encoder (`llama_encode`).
     pub fn has_encoder(&self) -> bool {
         unsafe { llama_model_has_encoder(self.inner.model) }
     }
 
-    #[inline]
+    /// `true` for diffusion models.
     pub fn is_diffusion(&self) -> bool {
         unsafe { llama_model_is_diffusion(self.inner.model) }
     }
 
-    #[inline]
+    /// `true` for hybrid (attention + recurrence) models.
     pub fn is_hybrid(&self) -> bool {
         unsafe { llama_model_is_hybrid(self.inner.model) }
     }
 
-    #[inline]
+    /// `true` for recurrent models.
     pub fn is_recurrent(&self) -> bool {
         unsafe { llama_model_is_recurrent(self.inner.model) }
     }
 
-    pub fn token_to_piece(&self, token: i32) -> Result<String, ()> {
-        let mut buf = [0u8; 64];
+    /// Render one token back to text.
+    ///
+    /// Fails with [`Error::NoPiece`] when the token has no text (e.g. some
+    /// special tokens).
+    pub fn token_to_piece(&self, token: i32) -> Result<String, Error> {
+        let mut buf = vec![0u8; 64];
         let n = unsafe {
-            llama_sys::llama_token_to_piece(
+            llama_token_to_piece(
                 self.inner.vocab,
                 token,
                 buf.as_mut_ptr() as *mut i8,
@@ -180,14 +193,37 @@ impl Model {
             )
         };
         if n < 0 {
-            return Err(());
+            // The piece does not fit: llama.cpp reports the required size as a
+            // negative count. Retry once with a buffer of exactly that size.
+            buf.resize(-n as usize, 0);
+            let n = unsafe {
+                llama_token_to_piece(
+                    self.inner.vocab,
+                    token,
+                    buf.as_mut_ptr() as *mut i8,
+                    buf.len() as i32,
+                    0,
+                    true,
+                )
+            };
+            if n < 0 {
+                return Err(Error::NoPiece);
+            }
+            buf.truncate(n as usize);
+        } else {
+            buf.truncate(n as usize);
         }
-        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+        Ok(String::from_utf8_lossy(&buf).into_owned())
     }
 
+    /// Split `text` into token ids.
+    ///
+    /// `add_special` prepends the BOS token when the vocabulary wants one;
+    /// `parse_special` makes special-token markers like `<eos>` part of the
+    /// tokenization instead of plain text.
     pub fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Vec<i32> {
         let len = -unsafe {
-            llama_sys::llama_tokenize(
+            llama_tokenize(
                 self.inner.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
@@ -199,7 +235,7 @@ impl Model {
         };
         let mut tokens = vec![0i32; len as usize];
         let n_tokens = unsafe {
-            llama_sys::llama_tokenize(
+            llama_tokenize(
                 self.inner.vocab,
                 text.as_ptr() as *const i8,
                 text.len() as i32,
@@ -211,5 +247,13 @@ impl Model {
         };
         tokens.truncate(n_tokens as usize);
         tokens
+    }
+
+    pub(crate) fn as_mut_ptr(&self) -> *mut llama_model {
+        self.inner.model
+    }
+
+    pub(crate) fn vocab_ptr(&self) -> *const llama_vocab {
+        self.inner.vocab
     }
 }
