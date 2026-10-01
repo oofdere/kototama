@@ -79,10 +79,10 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(arena);
+    defer seq.deinit();
 
     // Decode the prompt into the sequence, then echo it back token by token.
-    try seq.extend(arena, prompt_tokens);
+    try seq.extend(prompt_tokens);
     for (prompt_tokens) |token| {
         const piece = try model.tokenToPiece(arena, token);
         try out.print("{s}", .{piece});
@@ -97,7 +97,7 @@ pub fn main(init: std.process.Init) !void {
         const piece = try model.tokenToPiece(arena, token);
         try out.print("{s}", .{piece});
 
-        _ = try seq.push(arena, token);
+        _ = try seq.push(token);
     }
     try out.print("\n", .{});
     try out.flush();

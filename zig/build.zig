@@ -118,6 +118,10 @@ pub fn build(b: *std.Build) void {
     });
 
     // -- ggml-cpu: the CPU backend --------------------------------------
+    //
+    // Sources and flags are gated by target the way llama.cpp's CMake selects
+    // them: arch-specific files only for that architecture (CMake's
+    // `GGML_SYSTEM_ARCH` branch), Accelerate only on macOS.
     const cpu_arch_flags: []const []const u8 = if (is_arm64) &.{
         // ggml-cpu/CMakeLists.txt probes the machine for dotprod/i8mm/sme and
         // disables SVE. On Apple silicon `-mcpu=native` already implies the
@@ -125,40 +129,65 @@ pub fn build(b: *std.Build) void {
         if (is_native) "-mcpu=native" else "-mcpu=generic",
     } else &.{};
 
-    const cpu_defs: []const []const u8 = &.{
+    var cpu_defs: std.ArrayList([]const u8) = .empty;
+    cpu_defs.appendSlice(b.allocator, &.{
         "-DGGML_USE_CPU_REPACK",
         "-DGGML_USE_LLAMAFILE",
-        "-DGGML_USE_ACCELERATE",
-        "-DACCELERATE_NEW_LAPACK",
-        "-DACCELERATE_LAPACK_ILP64",
-    };
+    }) catch @panic("OOM");
+    if (is_macos) {
+        cpu_defs.appendSlice(b.allocator, &.{
+            "-DGGML_USE_ACCELERATE",
+            "-DACCELERATE_NEW_LAPACK",
+            "-DACCELERATE_LAPACK_ILP64",
+        }) catch @panic("OOM");
+    }
+
+    // Arch-specific quantization kernels: one per family, chosen at build
+    // time exactly as CMake's `GGML_SYSTEM_ARCH` block does.
+    var cpu_c_extra: std.ArrayList([]const u8) = .empty;
+    var cpu_cxx_extra: std.ArrayList([]const u8) = .empty;
+    if (is_arm64) {
+        cpu_c_extra.appendSlice(b.allocator, &.{"ggml/src/ggml-cpu/arch/arm/quants.c"}) catch @panic("OOM");
+        cpu_cxx_extra.appendSlice(b.allocator, &.{"ggml/src/ggml-cpu/arch/arm/repack.cpp"}) catch @panic("OOM");
+    } else if (target.result.cpu.arch == .x86_64) {
+        cpu_c_extra.appendSlice(b.allocator, &.{"ggml/src/ggml-cpu/arch/x86/quants.c"}) catch @panic("OOM");
+        cpu_cxx_extra.appendSlice(b.allocator, &.{"ggml/src/ggml-cpu/arch/x86/repack.cpp"}) catch @panic("OOM");
+    }
+
+    var cpu_c_files: std.ArrayList([]const u8) = .empty;
+    cpu_c_files.appendSlice(b.allocator, &.{
+        "ggml/src/ggml-cpu/ggml-cpu.c",
+        "ggml/src/ggml-cpu/quants.c",
+    }) catch @panic("OOM");
+    cpu_c_files.appendSlice(b.allocator, cpu_c_extra.items) catch @panic("OOM");
+
+    var cpu_cxx_files: std.ArrayList([]const u8) = .empty;
+    cpu_cxx_files.appendSlice(b.allocator, &.{
+        "ggml/src/ggml-cpu/ggml-cpu.cpp",
+        "ggml/src/ggml-cpu/repack.cpp",
+        "ggml/src/ggml-cpu/hbm.cpp",
+        "ggml/src/ggml-cpu/traits.cpp",
+        "ggml/src/ggml-cpu/binary-ops.cpp",
+        "ggml/src/ggml-cpu/unary-ops.cpp",
+        "ggml/src/ggml-cpu/vec.cpp",
+        "ggml/src/ggml-cpu/ops.cpp",
+        // AMX units compile on every architecture (their bodies are guarded
+        // internally) — CMake's base source list includes them unconditionally.
+        "ggml/src/ggml-cpu/amx/amx.cpp",
+        "ggml/src/ggml-cpu/amx/mmq.cpp",
+        "ggml/src/ggml-cpu/llamafile/sgemm.cpp",
+    }) catch @panic("OOM");
+    cpu_cxx_files.appendSlice(b.allocator, cpu_cxx_extra.items) catch @panic("OOM");
 
     ll_mod.addCSourceFiles(.{
         .root = ll,
-        .files = &.{
-            "ggml/src/ggml-cpu/ggml-cpu.c",
-            "ggml/src/ggml-cpu/quants.c",
-            "ggml/src/ggml-cpu/arch/arm/quants.c",
-        },
-        .flags = flagsOf(b, &.{ &.{ inc_ggml_src, inc_ggml, inc_cpu }, ggml_common_defs, cpu_defs, cpu_arch_flags }),
+        .files = cpu_c_files.items,
+        .flags = flagsOf(b, &.{ &.{ inc_ggml_src, inc_ggml, inc_cpu }, ggml_common_defs, cpu_defs.items, cpu_arch_flags }),
     });
     ll_mod.addCSourceFiles(.{
         .root = ll,
-        .files = &.{
-            "ggml/src/ggml-cpu/ggml-cpu.cpp",
-            "ggml/src/ggml-cpu/repack.cpp",
-            "ggml/src/ggml-cpu/hbm.cpp",
-            "ggml/src/ggml-cpu/traits.cpp",
-            "ggml/src/ggml-cpu/binary-ops.cpp",
-            "ggml/src/ggml-cpu/unary-ops.cpp",
-            "ggml/src/ggml-cpu/vec.cpp",
-            "ggml/src/ggml-cpu/ops.cpp",
-            "ggml/src/ggml-cpu/amx/amx.cpp",
-            "ggml/src/ggml-cpu/amx/mmq.cpp",
-            "ggml/src/ggml-cpu/llamafile/sgemm.cpp",
-            "ggml/src/ggml-cpu/arch/arm/repack.cpp",
-        },
-        .flags = flagsOf(b, &.{ &.{ inc_ggml_src, inc_ggml, inc_cpu }, cxx_flags, libcxx_defs, ggml_common_defs, cpu_defs, cpu_arch_flags }),
+        .files = cpu_cxx_files.items,
+        .flags = flagsOf(b, &.{ &.{ inc_ggml_src, inc_ggml, inc_cpu }, cxx_flags, libcxx_defs, ggml_common_defs, cpu_defs.items, cpu_arch_flags }),
     });
 
     // -- ggml-metal: the Metal backend (and ggml-blas via Accelerate) ----

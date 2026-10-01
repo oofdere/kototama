@@ -70,7 +70,7 @@ pub fn main(init: std.process.Init) !void {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(arena);
+    defer seq.deinit();
 
     // ---- samplers: min_p -> temperature -> dist, applied by hand --------
     var minp = kototama.Sampler{ .min_p = .init(0.05, 1) };
@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
 
         const is_first = seq.isEmpty();
         const prompt_tokens = try model.tokenize(arena, prompt, is_first, true);
-        try seq.extend(arena, prompt_tokens);
+        try seq.extend(prompt_tokens);
 
         // ---- generate until end-of-line or end-of-generation ------------
         var response: std.ArrayList(u8) = .empty;
@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init) !void {
             try out.print("{s}", .{piece});
             try response.appendSlice(arena, piece);
 
-            _ = try seq.push(arena, token);
+            _ = try seq.push(token);
 
             // The Rust example stops at the end of each generated line.
             if (std.mem.indexOfScalar(u8, piece, '\n') != null) break;

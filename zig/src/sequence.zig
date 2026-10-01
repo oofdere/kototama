@@ -1,9 +1,14 @@
 //! `Sequence`: one conversation or generation thread inside a `Context`.
 //!
-//! The Rust version caches the logits from the last `push()` locally, so
-//! sampling needs no extra round-trip; this port keeps that design — `push`
-//! returns the logits slice borrowed from llama.cpp (valid until the next
-//! decode on the context).
+//! # Logits ownership
+//!
+//! llama.cpp hands out a pointer to the context's single output buffer, which
+//! the next `llama_decode` anywhere in the context overwrites. The Rust
+//! version copies into a per-sequence `Vec` for exactly this reason; this port
+//! preallocates one `n_vocab`-sized buffer per sequence at checkout and copies
+//! into it on every push. `lastLogits()` therefore stays valid while other
+//! sequences decode — and because the buffer is allocated up front, `push`
+//! has no allocation left to fail after the KV cache has already advanced.
 //!
 //! Ownership: a `Sequence` borrows its `Context` and must be deinitialized
 //! first. `deinit` returns the slot to the context's pool and clears that
@@ -21,49 +26,74 @@ pub const Sequence = struct {
     ctx: *Context,
     id: c.llama_seq_id,
     tokens: std.ArrayList(Token),
-    /// Logits of the most recent push, borrowed from the context's output
-    /// buffer. `null` after mutations that invalidate them (pop, remove, kv_*)
+    /// Owned buffer holding a copy of the logits from the most recent push.
+    /// `logits` points into this buffer, or is `null` after mutations that
+    /// invalidate it (pop, remove, kv_*).
+    logits_buf: []f32,
     logits: ?[]const f32,
+    alloc: std.mem.Allocator,
 
+    /// Check out sequence slot `id` of `ctx`. The logits buffer is allocated
+    /// here so `push` never has to allocate mid-generation; free the sequence
+    /// with `deinit` before the context goes away.
     pub fn init(ctx: *Context, id: c.llama_seq_id) error{OutOfMemory}!Sequence {
+        const logits_buf = try ctx.alloc.alloc(f32, ctx.n_vocab);
         return .{
             .ctx = ctx,
             .id = id,
             .tokens = .empty,
+            .logits_buf = logits_buf,
             .logits = null,
+            .alloc = ctx.alloc,
         };
     }
 
     /// Return the sequence's slot to the context and clear its KV state.
-    pub fn deinit(self: *Sequence, alloc: std.mem.Allocator) void {
-        self.tokens.deinit(alloc);
+    pub fn deinit(self: *Sequence) void {
+        self.tokens.deinit(self.alloc);
+        self.alloc.free(self.logits_buf);
         self.ctx.releaseSeq(self.id);
         self.* = undefined;
     }
 
     /// Decode one token at the next position. Returns the logits vector for
-    /// that token (borrowed; valid until the next decode on this context).
-    pub fn push(self: *Sequence, alloc: std.mem.Allocator, token: Token) DecodeError![]const f32 {
+    /// that token: a slice of this sequence's own buffer, valid until the next
+    /// `push`/`decode` on *this* sequence (other sequences decoding in the
+    /// same context cannot invalidate it).
+    ///
+    /// The only allocation (growing the token list) happens before the decode,
+    /// so once llama.cpp has advanced the KV cache no failure can desync the
+    /// token list from it.
+    pub fn push(self: *Sequence, token: Token) DecodeError![]const f32 {
+        try self.tokens.ensureUnusedCapacity(self.alloc, 1);
+
         const pos: c.llama_pos = @intCast(self.tokens.items.len);
-        const logits = try self.ctx.pushToken(token, pos, self.id);
-        try self.tokens.append(alloc, token);
-        self.logits = logits;
-        return logits;
+        const borrowed = try self.ctx.pushToken(token, pos, self.id);
+
+        @memcpy(self.logits_buf, borrowed);
+        self.logits = self.logits_buf;
+
+        self.tokens.appendAssumeCapacity(token);
+        return self.logits_buf;
     }
 
     /// Decode several tokens in order (the Rust `extend`).
-    pub fn extend(self: *Sequence, alloc: std.mem.Allocator, tokens: []const Token) DecodeError!void {
+    pub fn extend(self: *Sequence, tokens: []const Token) DecodeError!void {
         for (tokens) |token| {
-            _ = try self.push(alloc, token);
+            _ = try self.push(token);
         }
     }
 
     /// Re-decode the last token to refresh logits without pushing a new one.
     /// Useful after `pop`, `remove`, or other mutations that invalidate them.
     pub fn decode(self: *Sequence) DecodeError!void {
-        const last = if (self.tokens.items.len == 0) return else self.tokens.items[self.tokens.items.len - 1];
+        if (self.tokens.items.len == 0) return;
+        const last = self.tokens.items[self.tokens.items.len - 1];
         const pos: c.llama_pos = @intCast(self.tokens.items.len - 1);
-        self.logits = try self.ctx.pushToken(last, pos, self.id);
+        const borrowed = try self.ctx.pushToken(last, pos, self.id);
+
+        @memcpy(self.logits_buf, borrowed);
+        self.logits = self.logits_buf;
     }
 
     /// Remove the last token and its KV state. Returns the removed token, or
@@ -90,10 +120,10 @@ pub const Sequence = struct {
 
     /// Copy this sequence's tokens and KV state in `[start, end)` into
     /// `other`, replacing `other`'s contents.
-    pub fn copyTo(self: *Sequence, other: *Sequence, alloc: std.mem.Allocator, start: usize, end: usize) !void {
+    pub fn copyTo(self: *Sequence, other: *Sequence, start: usize, end: usize) !void {
         self.kvCopy(other, @intCast(start), @intCast(end));
         other.tokens.clearRetainingCapacity();
-        try other.tokens.appendSlice(alloc, self.tokens.items[start..end]);
+        try other.tokens.appendSlice(other.alloc, self.tokens.items[start..end]);
         other.logits = null;
     }
 
@@ -115,7 +145,9 @@ pub const Sequence = struct {
         return self.tokens.items;
     }
 
-    /// The logits of the last push, or `null` when there is nothing decoded.
+    /// The logits of the last push, or `null` when nothing has been decoded
+    /// (or a KV mutation invalidated them). Borrowed from this sequence's own
+    /// buffer — see the module docs.
     pub fn lastLogits(self: *const Sequence) ?[]const f32 {
         return self.logits;
     }

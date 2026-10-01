@@ -298,7 +298,7 @@ test "sequence checkout and release returns slots" {
     try std.testing.expectEqual(@as(usize, 2), ctx.freeSlots());
 
     var a = (try ctx.checkoutSequence()).?;
-    defer a.deinit(alloc);
+    defer a.deinit();
     try std.testing.expectEqual(@as(usize, 1), ctx.freeSlots());
 
     var b = (try ctx.checkoutSequence()).?;
@@ -306,7 +306,7 @@ test "sequence checkout and release returns slots" {
 
     try std.testing.expect((try ctx.checkoutSequence()) == null);
 
-    b.deinit(alloc);
+    b.deinit();
     try std.testing.expectEqual(@as(usize, 1), ctx.freeSlots());
 }
 
@@ -321,14 +321,14 @@ test "push grows the sequence and produces logits" {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(alloc);
+    defer seq.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), seq.len());
     try std.testing.expect(seq.lastLogits() == null);
 
     const tokens = try model.tokenize(alloc, "hello world", false, false);
     defer alloc.free(tokens);
-    try seq.extend(alloc, tokens);
+    try seq.extend(tokens);
 
     try std.testing.expectEqual(tokens.len, seq.len());
     const logits = seq.lastLogits().?;
@@ -346,11 +346,11 @@ test "greedy decode matches manual argmax over logits" {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(alloc);
+    defer seq.deinit();
 
     const tokens = try model.tokenize(alloc, "Once upon a time", true, false);
     defer alloc.free(tokens);
-    try seq.extend(alloc, tokens);
+    try seq.extend(tokens);
 
     const logits = seq.lastLogits().?;
     var manual: kototama.Token = 0;
@@ -378,11 +378,11 @@ test "pop removes the last token and its kv state" {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(alloc);
+    defer seq.deinit();
 
     const tokens = try model.tokenize(alloc, "one two three", true, false);
     defer alloc.free(tokens);
-    try seq.extend(alloc, tokens);
+    try seq.extend(tokens);
     try std.testing.expectEqual(tokens.len, seq.len());
 
     const popped = seq.pop();
@@ -404,11 +404,11 @@ test "remove drops a range of tokens" {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(alloc);
+    defer seq.deinit();
 
     const tokens = try model.tokenize(alloc, "one two three four", true, false);
     defer alloc.free(tokens);
-    try seq.extend(alloc, tokens);
+    try seq.extend(tokens);
 
     try std.testing.expect(seq.remove(1, 3));
     try std.testing.expectEqual(tokens.len - 2, seq.len());
@@ -427,10 +427,64 @@ test "empty sequence reports zero length" {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(alloc);
+    defer seq.deinit();
 
     try std.testing.expect(seq.isEmpty());
     try std.testing.expectEqual(@as(?kototama.Token, null), seq.pop());
+}
+
+test "n_seq_max zero falls back to llama default with a working pool" {
+    const alloc = std.testing.allocator;
+    const model = try loadModel(alloc);
+
+    // Regression: the slot bitmap used to be sized from opts.n_seq_max
+    // (0 here) while the C context got the library default, so checkout
+    // always failed. Zero must also mean "all slots start free" — Zig's
+    // allocator hands back undefined memory.
+    var ctx = try kototama.Context.init(alloc, model, .{
+        .n_ctx = 64,
+        .n_batch = 64,
+        .n_seq_max = 0,
+    });
+    defer ctx.deinit();
+
+    try std.testing.expect(ctx.freeSlots() > 0);
+    var seq = (try ctx.checkoutSequence()).?;
+    defer seq.deinit();
+}
+
+test "sequence logits stay valid while another sequence decodes" {
+    const alloc = std.testing.allocator;
+    const model = try loadModel(alloc);
+
+    // Regression: logits used to be a pointer into the context-wide output
+    // buffer, so B's push silently overwrote A's cached logits.
+    var ctx = try kototama.Context.init(alloc, model, .{
+        .n_ctx = 128,
+        .n_batch = 128,
+        .n_seq_max = 2,
+    });
+    defer ctx.deinit();
+
+    var a = (try ctx.checkoutSequence()).?;
+    defer a.deinit();
+    var b = (try ctx.checkoutSequence()).?;
+    defer b.deinit();
+
+    const tokens_a = try model.tokenize(alloc, "first", true, false);
+    defer alloc.free(tokens_a);
+    try a.extend(tokens_a);
+
+    const before = try alloc.dupe(f32, a.lastLogits().?);
+    defer alloc.free(before);
+
+    // Decode on the *other* sequence; A's cached logits must not move.
+    const tokens_b = try model.tokenize(alloc, "second", true, false);
+    defer alloc.free(tokens_b);
+    try b.extend(tokens_b);
+
+    const after = a.lastLogits().?;
+    try std.testing.expectEqualSlices(f32, before, after);
 }
 
 test "greedy generation is deterministic across runs" {
@@ -448,11 +502,11 @@ test "greedy generation is deterministic across runs" {
         defer ctx.deinit();
 
         var seq = (try ctx.checkoutSequence()).?;
-        defer seq.deinit(alloc);
+        defer seq.deinit();
 
         const tokens = try model.tokenize(alloc, "Once upon a time", true, false);
         defer alloc.free(tokens);
-        try seq.extend(alloc, tokens);
+        try seq.extend(tokens);
 
         var generated: std.ArrayList(kototama.Token) = .empty;
         for (0..8) |_| {
@@ -461,7 +515,7 @@ test "greedy generation is deterministic across runs" {
             if (model.isEog(token)) break;
 
             try generated.append(alloc, token);
-            _ = try seq.push(alloc, token);
+            _ = try seq.push(token);
         }
         out.* = try generated.toOwnedSlice(alloc);
     }

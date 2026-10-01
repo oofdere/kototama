@@ -81,11 +81,11 @@ pub fn main() !void {
     defer ctx.deinit();
 
     var seq = (try ctx.checkoutSequence()).?;
-    defer seq.deinit(alloc);
+    defer seq.deinit();
 
     const prompt = try model.tokenize(alloc, "Once upon a time", true, true);
     defer alloc.free(prompt);
-    try seq.extend(alloc, prompt);
+    try seq.extend(prompt);
 
     // Greedy decode 32 tokens.
     var sampler = kototama.Sampler{ .greedy = .{} };
@@ -95,7 +95,7 @@ pub fn main() !void {
         const piece = try model.tokenToPiece(alloc, token);
         defer alloc.free(piece);
         // ... print `piece`
-        _ = try seq.push(alloc, token);
+        _ = try seq.push(token);
     }
 }
 ```
@@ -111,6 +111,10 @@ Zig has no destructors, so every wrapper spells its contract out:
   A `Sequence` borrows its context and **must** be deinitialized first.
 - `Sequence.deinit` returns the slot to the context's pool and clears that
   sequence's KV state.
+- `Sequence.lastLogits` returns a slice of the sequence's *own* logits buffer,
+  copied out of llama.cpp's context-wide output buffer on every push. It stays
+  valid while other sequences in the same context decode, and is invalidated
+  by the next `push`/`decode` on the same sequence or by KV mutations.
 - Every function returning allocated text or token slices (`tokenize`,
   `tokenToPiece`, `desc`) documents the allocator it used; in the examples
   that is the process arena, so nothing is freed piecemeal.

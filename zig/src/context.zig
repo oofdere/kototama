@@ -65,6 +65,10 @@ pub const Context = struct {
     alloc: std.mem.Allocator,
 
     /// Create a context from `model`. Free with `deinit`.
+    ///
+    /// The sequence-slot pool is sized from `n_seq_max` *after* defaults are
+    /// merged, so `0` ("use the library default") yields a working pool rather
+    /// than an empty one.
     pub fn init(
         alloc: std.mem.Allocator,
         m: *const Model,
@@ -76,18 +80,25 @@ pub const Context = struct {
         if (opts.n_seq_max != 0) params.n_seq_max = opts.n_seq_max;
         params.no_perf = opts.no_perf;
 
+        const n_seq_max = params.n_seq_max;
+
+        // Allocate the slot bitmap *first* and zero it: Zig's allocator hands
+        // back undefined memory, and every slot must start free (Rust's
+        // `vec![false; n]` did this for free). Allocating it before the C
+        // handles exist also keeps the failure paths trivially clean — a
+        // later failure cannot leak a half-initialized batch or context.
+        const checked_out = alloc.alloc(bool, n_seq_max) catch return error.ContextInitFailed;
+        errdefer alloc.free(checked_out);
+        @memset(checked_out, false);
+
         const handle = c.llama_init_from_model(m.handle, params);
         if (handle == null) return error.ContextInitFailed;
 
-        const n_seq_max = opts.n_seq_max;
         return .{
             .handle = handle.?,
             .batch = Batch.init(1, @intCast(n_seq_max)),
             .n_vocab = @intCast(m.nTokens()),
-            .checked_out = alloc.alloc(bool, n_seq_max) catch {
-                c.llama_free(handle);
-                return error.ContextInitFailed;
-            },
+            .checked_out = checked_out,
             .alloc = alloc,
         };
     }
@@ -173,7 +184,9 @@ pub const Context = struct {
         return self.logitsIth(0) orelse error.FatalError;
     }
 
-    /// Copy the logits for batch index `i` out of llama.cpp.
+    /// Borrow the logits for batch index `i` straight from llama.cpp's
+    /// context-wide output buffer. The slice is invalidated by the next
+    /// `llama_decode` on this context — `Sequence.push` copies out of it.
     pub fn logitsIth(self: *const Context, i: i32) ?[]const f32 {
         const ptr = c.llama_get_logits_ith(self.handle, i);
         if (ptr == null or self.n_vocab == 0) return null;
