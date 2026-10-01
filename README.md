@@ -12,6 +12,12 @@ this should just build without any special work if you've followed the [upstream
 3. document things properly and clearly
 4. provide common compile flags as cargo features
 
+## Ports
+
+- [swift/](swift/) — a Swift port of this crate, sharing the same llama.cpp
+  checkout. [swift/COMPARISON.md](swift/COMPARISON.md) is a write-up comparing
+  the two: design, code, measured benchmarks, and which one to reach for.
+
 ## Versioning
 semver (no effort will be made to match the upstream version numbers whatsoever for obvious reasons)
 

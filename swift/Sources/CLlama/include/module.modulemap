@@ -1,0 +1,4 @@
+module CLlama {
+    header "CLlama.h"
+    export *
+}

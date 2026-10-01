@@ -59,6 +59,25 @@ cargo llvm-cov --html -- --test-threads=1
 # opens target/llvm-cov/html/index.html
 ```
 
+## Swift port
+
+A Swift port of this crate lives in `swift/`, sharing the same llama.cpp
+submodule. See `swift/COMPARISON.md` for the design write-up and benchmark
+numbers. Its dev loop:
+
+```sh
+cd swift
+scripts/build-llama.sh          # one-time: builds llama.cpp as static libs
+swift build                     # debug
+swift test                      # 120 tests, incl. snapshot tests
+```
+
+The snapshot tests carry token streams ported verbatim from `tests/snapshots/`,
+so they must stay green whenever they run — they are the cross-language
+equality check between the Rust and Swift sides. After bumping llama.cpp,
+re-record with `KOTOTAMA_UPDATE_SNAPSHOTS=1 swift test --filter SnapshotTests`
+and review the JSON diffs the same way you would `cargo insta review`.
+
 ## Model used for testing
 
 The canonical test model is **TinyStories-656K Q2_K** (~540KB):
