@@ -1,0 +1,11 @@
+# Swift build products
+.build/
+
+# llama.cpp headers copied in by scripts/build-llama.sh — regenerable,
+# only CLlama.h (and the module map) are ours and checked in.
+Sources/CLlama/include/*.h
+!Sources/CLlama/include/CLlama.h
+
+# Xcode / SwiftPM user state
+.swiftpm/
+*.xcodeproj
