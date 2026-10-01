@@ -5,7 +5,7 @@
 //! The state is shared through `Arc<Mutex<_>>`, so `Context` is cheap to clone
 //! and safe to use from several threads — calls simply serialize on the lock.
 
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use llama_sys::*;
@@ -107,6 +107,24 @@ impl ContextState {
         Ok(unsafe { std::slice::from_raw_parts(ptr, self.n_vocab) }.to_vec())
     }
 
+    /// Re-decode the token at token-index `pos` (its existing KV slot) and
+    /// return the fresh logits.
+    ///
+    /// The stale KV entry at `pos` is removed first: llama.cpp requires
+    /// consecutive positions and refuses to overwrite an existing one, so the
+    /// entry must be dropped before it can be decoded again at the same
+    /// position. On failure the token is left without a KV entry; re-feed the
+    /// sequence before trusting its state.
+    pub(crate) fn refresh_token(
+        &mut self,
+        token: llama_token,
+        pos: llama_pos,
+        seq_id: llama_seq_id,
+    ) -> Result<Vec<f32>, Error> {
+        self.kv_remove(seq_id, pos, -1);
+        self.decode_token(token, pos, seq_id)
+    }
+
     /// Free a checked-out sequence slot and drop all of its tokens from the
     /// context memory.
     pub(crate) fn release_seq(&mut self, seq_id: llama_seq_id) {
@@ -154,6 +172,43 @@ impl ContextState {
     /// Largest position present in memory for `seq_id`, or `-1` when empty.
     pub(crate) fn kv_pos_max(&self, seq_id: llama_seq_id) -> llama_pos {
         unsafe { llama_memory_seq_pos_max(self.memory(), seq_id) }
+    }
+
+    /// Remove the tokens of `seq_id` whose token-list indices fall in `range`,
+    /// then shift the tokens after it down by the removed length.
+    ///
+    /// The shift keeps the sequence invariant "token index == KV position"
+    /// intact: `Sequence` tracks tokens in a `Vec` whose indices renumber as
+    /// soon as a middle range is drained, so the KV positions must renumber
+    /// with them. Returns `false` when the KV entries cannot be removed; in
+    /// that case nothing is shifted.
+    pub(crate) fn remove_token_range(
+        &mut self,
+        seq_id: llama_seq_id,
+        range: &Range<usize>,
+    ) -> bool {
+        let ok = self.kv_remove(seq_id, range.start as i32, range.end as i32);
+        if ok {
+            // llama.cpp's p1 < 0 means "to the end of the sequence".
+            self.kv_shift(seq_id, range.end as i32, -1, -(range.len() as i32));
+        }
+        ok
+    }
+
+    /// Replace everything on `dst` with a copy of `src`'s tokens in `range`,
+    /// rebased to KV positions `0..range.len()` so they line up with the
+    /// indices of the copied token list.
+    pub(crate) fn copy_token_range(
+        &mut self,
+        src: llama_seq_id,
+        dst: llama_seq_id,
+        range: &Range<usize>,
+    ) {
+        self.kv_remove(dst, -1, -1);
+        self.kv_copy(src, dst, range.start as i32, range.end as i32);
+        if range.start != 0 {
+            self.kv_shift(dst, range.start as i32, range.end as i32, -(range.start as i32));
+        }
     }
 }
 
