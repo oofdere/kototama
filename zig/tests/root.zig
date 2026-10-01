@@ -487,6 +487,27 @@ test "sequence logits stay valid while another sequence decodes" {
     try std.testing.expectEqualSlices(f32, before, after);
 }
 
+test "failed checkout does not leak a pool slot" {
+    const alloc = std.testing.allocator;
+    const model = try loadModel(alloc);
+
+    // Regression: checkoutSequence claims the slot before Sequence.init can
+    // fail on its logits-buffer allocation. Let Context.init's slot-bitmap
+    // allocation succeed (allocation #1), then fail the next one.
+    var failing = std.testing.FailingAllocator.init(alloc, .{ .fail_index = 1 });
+    var ctx = try kototama.Context.init(failing.allocator(), model, .{
+        .n_ctx = 64,
+        .n_batch = 64,
+        .n_seq_max = 2,
+    });
+    defer ctx.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), ctx.freeSlots());
+    try std.testing.expectError(error.OutOfMemory, ctx.checkoutSequence());
+    // The slot must be back in the pool, not silently consumed.
+    try std.testing.expectEqual(@as(usize, 2), ctx.freeSlots());
+}
+
 test "greedy generation is deterministic across runs" {
     const alloc = std.testing.allocator;
     const model = try loadModel(alloc);

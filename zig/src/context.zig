@@ -115,8 +115,15 @@ pub const Context = struct {
     pub fn checkoutSequence(self: *Context) error{OutOfMemory}!?sequence.Sequence {
         for (self.checked_out, 0..) |*slot, i| {
             if (!slot.*) {
+                // Claim the slot first so a concurrent checkout can't take
+                // it, but give it back if Sequence.init fails — otherwise a
+                // failed checkout would leak the slot for the context's life.
                 slot.* = true;
-                return try sequence.Sequence.init(self, @intCast(i));
+                const seq = sequence.Sequence.init(self, @intCast(i)) catch |err| {
+                    slot.* = false;
+                    return err;
+                };
+                return seq;
             }
         }
         return null;
