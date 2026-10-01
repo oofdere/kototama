@@ -62,16 +62,17 @@ impl Sampler for Chain {
     }
 
     fn sample(&mut self, logits: &[f32]) -> Token {
+        // Every sampler is applied exactly once: all but the last transform
+        // the logits in place, and the last one selects the token (applying
+        // its own transform through `sample`, so a selector like Greedy or
+        // Dist simply picks from the transformed logits).
         let mut logits = logits.to_vec();
-        for sampler in &mut self.samplers {
+        let Some((last, rest)) = self.samplers.split_last_mut() else {
+            return argmax(&logits);
+        };
+        for sampler in rest {
             sampler.apply_mut(&mut logits);
         }
-
-        match self.samplers.last_mut() {
-            // The last sampler is expected to be a selector (Greedy/Dist);
-            // calling its own sample() applies no extra transform for those.
-            Some(last) => last.sample(&logits),
-            None => argmax(&logits),
-        }
+        last.sample(&logits)
     }
 }

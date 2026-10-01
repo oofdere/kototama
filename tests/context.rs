@@ -77,7 +77,7 @@ fn perf_does_not_crash() {
     let _ = ctx.perf();
 }
 
-// ---------- Context::clone() shares actor state ----------
+// ---------- Context::clone() shares the same underlying context ----------
 
 #[test]
 fn context_clone_shares_free_slots() {
@@ -98,7 +98,7 @@ fn context_clone_slot_checkout_visible_on_original() {
     // Check out a sequence via the clone
     let _seq = ctx_clone.sequence().unwrap();
 
-    // The original handle should observe the reduced count (shared actor)
+    // The original handle should observe the reduced count (shared context)
     assert_eq!(ctx.free_slots(), total - 1);
 }
 

@@ -1,8 +1,16 @@
+//! Shared helpers for tests and benchmarks.
+//!
+//! These ship with the crate (behind the public API) so every test binary and
+//! the criterion benches load the same small GGUF test model.
+
 use std::sync::OnceLock;
 
 use crate::{ContextParams, Model, ModelParams};
 
 /// Path to the test model file.
+///
+/// Defaults to the bundled `./test-models/TinyStories-656K.Q2_K.gguf`;
+/// override with `RUSTY_LLAMA_TEST_MODEL` (or `RUSTY_LLAMA_BENCH_MODEL`).
 pub fn model_path() -> String {
     std::env::var("RUSTY_LLAMA_BENCH_MODEL")
         .or_else(|_| std::env::var("RUSTY_LLAMA_TEST_MODEL"))

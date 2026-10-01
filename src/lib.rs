@@ -4,7 +4,31 @@
 //! It maintains close fidelity to the original API while providing:
 //! - Memory safety through RAII
 //! - Type safety where possible
-//! - Thread safety via an actor model (powered by Spawned)
+//! - Thread safety through cheaply-cloned handles that share state behind a lock
+//!
+//! Everything is synchronous: calls run on the caller's thread and simply
+//! serialize when a handle is shared between threads.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use rusty_llama::*;
+//!
+//! let model = Model::load_from_file("model.gguf", ModelParams::new())?;
+//! let ctx = Context::new(&model, &ContextParams::new())?;
+//! let mut seq = ctx.sequence().expect("no free sequence slot");
+//!
+//! seq.extend(&model.tokenize("Hello", true, true))?;
+//! let mut sampler = Chain::new()
+//!     .with(TopK::new(40))
+//!     .with(Temperature::new(0.8))
+//!     .with(Dist::new(42));
+//! let token = seq.sample(&mut sampler).expect("no logits yet");
+//! # Ok::<(), Error>(())
+//! ```
+
+mod error;
+pub use error::Error;
 
 mod model;
 pub use model::*;
@@ -13,17 +37,15 @@ mod backend;
 pub use backend::*;
 
 mod context;
-pub use context::{Context, ContextParams, DecodeError};
+pub use context::{Context, ContextParams};
 
 mod samplers;
 pub use samplers::*;
 
 mod vocab;
 
-pub(crate) mod common;
-
 mod batch;
-pub(crate) use batch::*;
+use batch::Batch;
 
 mod sequence;
 pub use sequence::*;
