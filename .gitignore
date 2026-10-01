@@ -30,3 +30,8 @@ _build/
 deps/
 *.ez
 erl_crash.dump
+
+# Nim
+nimcache/
+nim/llama-cpp-build/
+scratch/
