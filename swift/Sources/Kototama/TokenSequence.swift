@@ -199,6 +199,12 @@ public final class TokenSequence {
     ///
     /// - Returns: `nil` when nothing has been decoded yet (no logits to
     ///   sample from), which is `Sequence::sample`'s behavior in Rust.
+    ///
+    /// The sampler's transform runs **once**. The Rust `Sequence::sample`
+    /// runs it twice (it calls `apply` and then `sample`, which transforms
+    /// again before argmax) — invisible for selectors like `Greedy`/`Dist`,
+    /// but a real difference for `Temperature`/`TopK`. The single application
+    /// is the intended semantics of `Sampler::sample`; see COMPARISON.md.
     public func sample(_ sampler: any Sampler) -> Token? {
         guard let logits = cachedLogits else { return nil }
         return sampler.sample(logits)

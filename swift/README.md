@@ -143,6 +143,9 @@ one-to-one. Each is discussed in COMPARISON.md.
 5. **Sort-based `TopK`/`MinP` thresholds** instead of `select_nth_unstable_by`
    (no quickselect in Swift's standard library). Same results, slightly worse
    asymptotics on a step that is noise next to `llama_decode`.
+6. **`TokenSequence.sample(_:)` applies the sampler once.** Rust's
+   `Sequence::sample` applies it twice (a quirk of its trait defaults). Only
+   matters for transform samplers; see COMPARISON.md.
 
 ## Requirements
 

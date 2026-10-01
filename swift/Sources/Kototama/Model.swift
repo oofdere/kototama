@@ -127,12 +127,19 @@ public final class Model: @unchecked Sendable {
     /// The model's chat template in Jinja form, or `nil` if it has none.
     ///
     /// - Parameter name: Optional template name, for models that ship several.
+    ///   A name that the model does not define yields `nil` — there is no
+    ///   fallback to the default template, matching `Model::chat_template` in
+    ///   the Rust crate and llama.cpp's own contract (a named lookup that
+    ///   misses returns NULL; only the unnamed lookup gets upstream's
+    ///   special-case workarounds).
     public func chatTemplate(named name: String? = nil) -> String? {
-        guard let text = name.flatMap({ llama_model_chat_template(handle, $0) })
-            ?? llama_model_chat_template(handle, nil)
-        else {
-            return nil
+        let text: UnsafePointer<CChar>?
+        if let name {
+            text = name.withCString { llama_model_chat_template(handle, $0) }
+        } else {
+            text = llama_model_chat_template(handle, nil)
         }
+        guard let text else { return nil }
         // Lossy, for the same reason `Vocabulary.text(of:)` is.
         return lossyString(text)
     }

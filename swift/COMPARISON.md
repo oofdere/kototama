@@ -192,6 +192,23 @@ it in one `softmax(_:)` helper. Everything else, including subtleties like
 Top-K's tie-preserving threshold and Min-P's `minKeep` floor, is the same
 algorithm with the same pinned test cases.
 
+One sampling semantic is deliberately *not* copied. Rust's
+`Sequence::sample` applies a sampler twice — it calls `sampler.apply(logits)`
+and then `sampler.sample(&transformed)`, and the trait's default `sample`
+transforms again before argmax. That is invisible for selectors (`Greedy`,
+`Dist`) whose transform is the identity, but it means a `Temperature` or
+`TopK` passed to `sequence.sample(_:)` runs twice in Rust. The Swift
+`TokenSequence.sample(_:)` applies it once, which is what `Sampler::sample`
+is documented to do. Similarly, `Chain::sample` in both languages delegates to
+its last stage after transforming, so a trailing *transform* (as opposed to a
+selector) is applied twice in both — kept as-is for parity, and harmless for
+the usual `transform -> transform -> selector` shape.
+
+None of this shows up in the snapshots or the benchmarks, because both sample
+through explicit `Greedy`/`Dist` pipelines rather than through
+`sequence.sample(_:)` with a transform. The divergence is documented at the
+code site and pinned by `RegressionTests`.
+
 ## The FFI layer
 
 This is the biggest practical difference between the two ports, and it favors

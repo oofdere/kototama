@@ -125,7 +125,12 @@ do {
 
         while true {
             guard let logits = sequence.logits else { break }
-            let scaled = minP.transform(temperature.transform(logits))
+            // Pipeline order matters and is the documented one, min_p -> temp
+            // -> dist (examples/simple_chat.rs applies them in exactly this
+            // order). MinP thresholds at max + ln(p) in logit space, so
+            // scaling by 1/temp first would change which tokens survive.
+            let pruned = minP.transform(logits)
+            let scaled = temperature.transform(pruned)
             let token = dist.sample(scaled)
 
             if model.isEndOfGeneration(token) { break }
