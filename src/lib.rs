@@ -50,6 +50,10 @@ use batch::Batch;
 mod sequence;
 pub use sequence::*;
 
+/// Async façade over the synchronous core, offloading blocking llama.cpp
+/// calls to a small background thread pool. No async runtime required.
+pub mod asynchronous;
+
 /// Type alias for llama.cpp token IDs.
 pub type Token = i32;
 /// Type alias for llama.cpp position indices.

@@ -16,10 +16,12 @@ use crate::{Context, Error, Sampler, Token};
 /// cannot exist at once: the sequence is not cloneable and every mutating
 /// method takes `&mut self`.
 pub struct Sequence {
-    ctx: Context,
-    id: i32,
-    tokens: Vec<i32>,
-    logits: Option<Vec<f32>>,
+    // Visible to the crate so the `asynchronous` facade can mirror these
+    // methods without duplicating the state machine.
+    pub(crate) ctx: Context,
+    pub(crate) id: i32,
+    pub(crate) tokens: Vec<i32>,
+    pub(crate) logits: Option<Vec<f32>>,
 }
 
 impl Sequence {
@@ -75,11 +77,13 @@ impl Sequence {
     /// Re-decode the last token to refresh the cached logits without pushing a
     /// new one. Useful after [`Sequence::pop`] or [`Sequence::remove`].
     ///
-    /// Does nothing on an empty sequence.
+    /// The token's stale KV entry is replaced: llama.cpp requires consecutive
+    /// positions and will not overwrite an existing one. Does nothing on an
+    /// empty sequence.
     pub fn decode(&mut self) -> Result<(), Error> {
         if let Some(&last) = self.tokens.last() {
             let pos = (self.tokens.len() - 1) as i32;
-            self.logits = Some(self.ctx.lock().decode_token(last, pos, self.id)?);
+            self.logits = Some(self.ctx.lock().refresh_token(last, pos, self.id)?);
         }
         Ok(())
     }
@@ -117,7 +121,7 @@ impl Sequence {
     /// Returns `false` — leaving the sequence unchanged — when the KV-cache
     /// removal fails.
     pub fn remove(&mut self, range: Range<usize>) -> bool {
-        if self.kv_remove(range.start as i32..range.end as i32) {
+        if self.ctx.lock().remove_token_range(self.id, &range) {
             self.tokens.drain(range);
             self.logits = None;
             true
@@ -132,7 +136,9 @@ impl Sequence {
     ///
     /// Both sequences must belong to the same [`Context`].
     pub fn copy_to(&self, other: &mut Self, range: Range<usize>) {
-        self.kv_copy(other, range.start as i32..range.end as i32);
+        self.ctx
+            .lock()
+            .copy_token_range(self.id, other.id, &range);
         other.tokens.clear();
         other
             .tokens
