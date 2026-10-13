@@ -320,3 +320,112 @@ fn chain_empty_is_greedy() {
     let token = chain.sample(&[0.1, 0.9, 0.5]);
     assert_eq!(token, 1);
 }
+
+// ---------- Chain::push / len / is_empty / Default ----------
+
+#[test]
+fn chain_new_is_empty() {
+    let chain = Chain::new();
+    assert!(chain.is_empty());
+    assert_eq!(chain.len(), 0);
+}
+
+#[test]
+fn chain_default_matches_new() {
+    let chain: Chain = Chain::default();
+    assert!(chain.is_empty());
+    assert_eq!(chain.len(), 0);
+}
+
+#[test]
+fn chain_with_increases_len() {
+    let chain = Chain::new().with(TopK::new(5));
+    assert!(!chain.is_empty());
+    assert_eq!(chain.len(), 1);
+
+    let chain = chain.with(Temperature::new(0.8)).with(Greedy::new());
+    assert_eq!(chain.len(), 3);
+}
+
+#[test]
+fn chain_push_increases_len() {
+    let mut chain = Chain::new();
+    chain.push(TopK::new(5));
+    assert_eq!(chain.len(), 1);
+    assert!(!chain.is_empty());
+    chain.push(Temperature::new(0.8));
+    chain.push(Greedy::new());
+    assert_eq!(chain.len(), 3);
+}
+
+#[test]
+fn chain_push_returns_mut_self_for_chaining() {
+    let mut chain = Chain::new();
+    chain
+        .push(TopK::new(1))
+        .push(Temperature::new(0.8))
+        .push(Greedy::new());
+    assert_eq!(chain.len(), 3);
+    let token = chain.sample(&[1.0, 5.0, 2.0, 3.0]);
+    assert_eq!(token, 1, "argmax survives a push-built chain");
+}
+
+#[test]
+fn chain_push_and_with_produce_equivalent_chains() {
+    let mut pushed = Chain::new();
+    pushed.push(TopK::new(2)).push(Temperature::new(0.5));
+    let mut withed = Chain::new().with(TopK::new(2)).with(Temperature::new(0.5));
+
+    let logits = [4.0, 3.0, 2.0, 1.0];
+    let a = pushed.apply(&logits);
+    let b = withed.apply(&logits);
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(b.iter()) {
+        if x.is_finite() {
+            assert!((x - y).abs() < 1e-6, "finite outputs match");
+        } else {
+            assert!(y.is_infinite() && y.is_sign_negative());
+        }
+    }
+}
+
+#[test]
+fn chain_sample_mut_matches_apply_mut_then_argmax() {
+    let mut chain_a = Chain::new().with(TopK::new(2));
+    let mut chain_b = Chain::new().with(TopK::new(2));
+
+    let logits = [1.0, 4.0, 3.0, 2.0];
+    let mut buf_a = logits.to_vec();
+    let token = chain_a.sample_mut(&mut buf_a);
+
+    let mut buf_b = logits.to_vec();
+    chain_b.apply_mut(&mut buf_b);
+    let expected = buf_b
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(i, _)| i as i32)
+        .unwrap();
+
+    assert_eq!(token, expected);
+    assert_eq!(buf_a, buf_b, "sample_mut transforms the slice in place");
+}
+
+#[test]
+fn chain_apply_returns_fresh_buffer_without_mutating() {
+    let mut chain = Chain::new().with(TopK::new(2));
+    let logits = [4.0, 3.0, 2.0, 1.0];
+    let out = chain.apply(&logits);
+    // Input is untouched; output has k=2 survivors.
+    assert_eq!(logits, [4.0, 3.0, 2.0, 1.0]);
+    assert_eq!(finite_count(&out), 2);
+}
+
+// ---------- Greedy::default ----------
+
+#[test]
+fn greedy_default_matches_new() {
+    let mut g = Greedy::default();
+    let logits = [0.1, 0.9, 0.5, 0.2];
+    assert_eq!(g.sample(&logits), 1);
+}
