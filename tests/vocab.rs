@@ -92,3 +92,33 @@ fn nl_token_optional() {
     // May or may not be present; just verify no crash
     let _ = model.nl_token();
 }
+
+#[test]
+fn is_control_negative_token_is_false() {
+    let model = common::load_model();
+    // Pre-fix, this crossed the FFI boundary and triggered C++ UB
+    // (unchecked `id_to_token[id]` on a signed-negative index).
+    assert!(!model.is_control(-1));
+    assert!(!model.is_control(i32::MIN));
+}
+
+#[test]
+fn is_control_out_of_range_token_is_false() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    // Same unchecked `operator[]` path, from the upper end of the range.
+    assert!(!model.is_control(n));
+    assert!(!model.is_control(n + 1));
+    assert!(!model.is_control(i32::MAX));
+}
+
+#[test]
+fn is_control_valid_token_still_calls_ffi() {
+    // Regression pin: the bounds check must not over-reject. BOS is a
+    // control token in TinyStories, so a false here would mean the valid
+    // path got short-circuited.
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        assert!(model.is_control(bos));
+    }
+}

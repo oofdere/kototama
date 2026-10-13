@@ -63,6 +63,15 @@ impl Model {
 
     #[inline]
     pub fn is_control(&self, token: i32) -> bool {
+        // SAFETY: `llama_vocab_is_control` reaches `id_to_token[id]` without a
+        // bounds check (unchecked `operator[]`), so a negative or oversized
+        // token id is C++ undefined behavior reachable from safe Rust. Gate the
+        // FFI call on an in-range id and report everything else as non-control,
+        // matching how llama.cpp's own `is_eog` handles LLAMA_TOKEN_NULL and
+        // out-of-range ids gracefully.
+        if token < 0 || token >= self.n_tokens() {
+            return false;
+        }
         unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
     }
 
