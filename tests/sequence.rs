@@ -349,3 +349,31 @@ fn sequence_sample_does_not_require_mut() {
     let token = seq.sample(&mut greedy).unwrap();
     assert!(token >= 0 && token < model.n_tokens());
 }
+
+// ---------- Sequence::decode() ----------
+
+#[test]
+fn decode_after_pop_restores_logits() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = model.tokenize("hello world", false, false);
+    seq.extend(&tokens[..tokens.len() - 1]);
+    let expected = seq.logits().unwrap().to_vec();
+
+    // Push one more, pop it, and re-decode: we should be back where we started.
+    seq.push(tokens[tokens.len() - 1]);
+    seq.pop();
+    assert!(seq.logits().is_none(), "pop should clear logits");
+    seq.decode();
+    assert_eq!(seq.logits().unwrap(), expected.as_slice());
+}
+
+#[test]
+fn decode_on_empty_sequence_is_noop() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    seq.decode();
+    assert!(seq.logits().is_none());
+}

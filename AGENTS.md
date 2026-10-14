@@ -66,3 +66,16 @@ The canonical test model is **TinyStories-656K Q2_K** (~540KB):
 - HuggingFace: https://huggingface.co/mradermacher/TinyStories-656K-GGUF
 - Bundled at `./test-models/TinyStories-656K.Q2_K.gguf`
 - Override with `RUSTY_LLAMA_TEST_MODEL` if needed
+
+## Architecture
+
+The crate is fully synchronous and single-threaded for now. See the crate docs
+in `src/lib.rs` for the overview. In short:
+
+- `Model` is `Arc`-backed and `Send + Sync`; it's read-only and meant to be
+  shared.
+- `Context` is a thin `Rc<RefCell<ContextInner>>` handle. All llama.cpp FFI for
+  contexts lives in `ContextInner` (`src/context.rs`). When adding threading,
+  change the handle (e.g. to `Arc<Mutex<_>>`), not `ContextInner`.
+- `Sequence` holds a `Context` handle and copies logits into its own reusable
+  buffer after each decode.
