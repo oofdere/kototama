@@ -16,6 +16,11 @@ llama-sys = { path = "llama-sys", features = ["native"] }
 rand = "0.9"
 
 
+[features]
+# Forwarded to llama-sys. `vulkan` builds llama.cpp's Vulkan backend.
+vulkan = ["llama-sys/vulkan"]
+cuda = ["llama-sys/cuda"]
+
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
 insta = { version = "1.47.2", features = ["yaml"] }
