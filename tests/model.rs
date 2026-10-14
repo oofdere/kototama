@@ -111,6 +111,20 @@ fn chat_template_default() {
     let _ = model.chat_template(None);
 }
 
+#[test]
+fn chat_template_unknown_name_is_none() {
+    // llama_model_chat_template returns NULL when the named template isn't
+    // bundled; the safe wrapper should surface that as None rather than
+    // panicking or returning a bogus String.
+    let model = common::load_model();
+    let got = model.chat_template(Some("not-a-real-template-name-xyz"));
+    assert!(
+        got.is_none(),
+        "expected None for an unknown template name, got {:?}",
+        got
+    );
+}
+
 // ---------- Clone (Arc-backed Model) ----------
 
 #[test]

@@ -283,6 +283,141 @@ fn xtc_probability_zero_is_noop() {
     assert_eq!(finite_count(&out), 4);
 }
 
+// ---------- apply_mut empty-slice guards ----------
+// Every logit-transforming sampler has an explicit empty-slice guard (or is
+// trivially safe on `[]`). None of these were previously exercised: if a
+// future refactor removes a guard the loop below would panic on a slice
+// read, so pin the no-op behaviour on `[]` for each sampler.
+
+#[test]
+fn temperature_empty_is_noop() {
+    let mut t = Temperature::new(0.8);
+    let mut logits: Vec<f32> = Vec::new();
+    t.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+#[test]
+fn top_k_empty_is_noop() {
+    let mut k = TopK::new(5);
+    let mut logits: Vec<f32> = Vec::new();
+    k.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+#[test]
+fn top_p_empty_is_noop() {
+    let mut p = TopP::new(0.9, 1);
+    let mut logits: Vec<f32> = Vec::new();
+    p.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+#[test]
+fn typical_empty_is_noop() {
+    let mut t = Typical::new(0.5, 1);
+    let mut logits: Vec<f32> = Vec::new();
+    t.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+#[test]
+fn top_n_sigma_empty_is_noop() {
+    let mut s = TopNSigma::new(1.0);
+    let mut logits: Vec<f32> = Vec::new();
+    s.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+#[test]
+fn min_p_empty_is_noop() {
+    let mut m = MinP::new(0.5, 0);
+    let mut logits: Vec<f32> = Vec::new();
+    m.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+#[test]
+fn xtc_empty_is_noop() {
+    let mut x = Xtc::new(1.0, 0.1, 1, 1);
+    let mut logits: Vec<f32> = Vec::new();
+    x.apply_mut(&mut logits);
+    assert!(logits.is_empty());
+}
+
+// ---------- apply_mut single-element guards ----------
+// TopNSigma and XTC both bail on `len <= 1` / `len < 2`: an N-of-1 "survivor
+// set" has nothing meaningful to mask. The other samplers don't bail
+// explicitly but should still leave a single logit untouched (nothing to
+// prune).
+
+#[test]
+fn top_n_sigma_single_element_is_noop() {
+    let mut s = TopNSigma::new(1.0);
+    let out = s.apply(&[3.14]);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0], 3.14, "the sole logit must survive");
+}
+
+#[test]
+fn xtc_single_element_is_noop() {
+    let mut x = Xtc::new(1.0, 0.1, 1, 1);
+    let out = x.apply(&[7.0]);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0], 7.0);
+}
+
+#[test]
+fn top_k_single_element_keeps_it() {
+    let mut k = TopK::new(1);
+    let out = k.apply(&[2.0]);
+    assert_eq!(out, [2.0]);
+}
+
+#[test]
+fn top_p_single_element_keeps_it() {
+    let mut p = TopP::new(0.5, 1);
+    let out = p.apply(&[2.0]);
+    assert_eq!(out, [2.0]);
+}
+
+#[test]
+fn typical_single_element_keeps_it() {
+    let mut t = Typical::new(0.5, 1);
+    let out = t.apply(&[2.0]);
+    assert_eq!(out, [2.0]);
+}
+
+#[test]
+fn min_p_single_element_keeps_it() {
+    // min_keep=0 lets MinP skip its early-return and run the main path on a
+    // 1-element slice; the sole logit must still survive (it's the maximum).
+    let mut m = MinP::new(0.5, 0);
+    let out = m.apply(&[2.0]);
+    assert_eq!(out, [2.0]);
+}
+
+// ---------- Temperature additional edge cases ----------
+
+#[test]
+fn temperature_large_flattens_logits() {
+    // Very large temperature should compress logits towards zero while
+    // keeping their relative ordering.
+    let mut t = Temperature::new(1000.0);
+    let out = t.apply(&[1.0, 2.0, 4.0]);
+    assert!(out.iter().all(|v| v.abs() < 0.01));
+    assert!(out[0] < out[1] && out[1] < out[2], "ordering preserved");
+}
+
+#[test]
+fn temperature_negative_flips_argmax() {
+    // Negative temperature inverts the sign of every logit, so the argmax
+    // flips to the index of the minimum original logit.
+    let mut t = Temperature::new(-1.0);
+    let logits = [1.0, 3.0, 2.0];
+    assert_eq!(t.sample(&logits), 0, "min becomes max under negative temp");
+}
+
 // ---------- Chain ----------
 
 #[test]
