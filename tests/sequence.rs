@@ -453,3 +453,178 @@ fn push_past_context_size_returns_error() {
     assert_eq!(seq.len(), n_ctx, "failed push must not add the token");
     assert!(seq.logits().is_none(), "failed push should clear logits");
 }
+
+// ---------- Positions after KV edits ----------
+
+fn unified_ctx(model: &rusty_llama::Model) -> Context {
+    let mut params = common::test_ctx_params();
+    params.kv_unified = true;
+    Context::new(model, &params).unwrap()
+}
+
+fn story(model: &rusty_llama::Model) -> Vec<i32> {
+    let tokens = model.tokenize("Once upon a time there was a little girl", false, false);
+    assert!(tokens.len() >= 8, "test needs at least 8 tokens");
+    tokens
+}
+
+#[test]
+fn positions_follow_pushes() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    assert_eq!(seq.next_pos(), 0);
+    let tokens = story(&model);
+    seq.extend(&tokens).unwrap();
+    let expected: Vec<i32> = (0..tokens.len() as i32).collect();
+    assert_eq!(seq.positions(), expected.as_slice());
+    assert_eq!(seq.next_pos(), tokens.len() as i32);
+}
+
+#[test]
+fn push_after_removing_from_middle() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = story(&model);
+    let n = tokens.len() as i32;
+    seq.extend(&tokens).unwrap();
+
+    assert!(seq.remove(2..4));
+    assert_eq!(seq.len(), tokens.len() - 2);
+    assert_eq!(&seq.positions()[..3], &[0, 1, 4]);
+
+    seq.push(tokens[0]).unwrap();
+    assert_eq!(*seq.positions().last().unwrap(), n);
+    assert!(seq.logits().is_some());
+}
+
+#[test]
+fn pop_after_remove_uses_real_position() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = story(&model);
+    seq.extend(&tokens).unwrap();
+    assert!(seq.remove(0..2));
+    let before = seq.pos_max();
+    seq.pop().unwrap();
+    assert_eq!(seq.pos_max(), before - 1);
+    seq.decode().unwrap();
+    assert!(seq.logits().is_some());
+}
+
+#[test]
+fn push_after_copying_offset_range() {
+    let (model, _) = setup();
+    let ctx = unified_ctx(&model);
+    let mut src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    let tokens = story(&model);
+    src.extend(&tokens).unwrap();
+
+    src.copy_to(&mut dst, 3..6);
+    assert_eq!(dst.tokens(), &tokens[3..6]);
+    assert_eq!(dst.positions(), &[3, 4, 5]);
+    assert_eq!(dst.pos_min(), 3);
+    assert_eq!(dst.pos_max(), 5);
+
+    dst.push(tokens[0]).unwrap();
+    assert_eq!(*dst.positions().last().unwrap(), 6);
+}
+
+#[test]
+fn copy_to_replaces_existing_contents() {
+    let (model, _) = setup();
+    let ctx = unified_ctx(&model);
+    let mut src = ctx.sequence().unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    let tokens = story(&model);
+    src.extend(&tokens[..2]).unwrap();
+    dst.extend(&tokens).unwrap();
+
+    src.copy_to(&mut dst, 0..2);
+    assert_eq!(dst.tokens(), &tokens[..2]);
+    assert_eq!(dst.pos_max(), 1, "dst's old KV entries must be gone");
+    dst.push(tokens[2]).unwrap();
+}
+
+#[test]
+fn copy_then_push_matches_original() {
+    let (model, _) = setup();
+    let ctx = unified_ctx(&model);
+    let tokens = story(&model);
+    let (prefix, next) = (&tokens[..tokens.len() - 1], *tokens.last().unwrap());
+
+    let mut src = ctx.sequence().unwrap();
+    src.extend(prefix).unwrap();
+    let mut dst = ctx.sequence().unwrap();
+    src.copy_to(&mut dst, 0..prefix.len());
+
+    src.push(next).unwrap();
+    dst.push(next).unwrap();
+    let diff = max_diff(src.logits().unwrap(), dst.logits().unwrap());
+    assert!(diff < 1e-3, "logits differ by {diff}");
+}
+
+#[test]
+fn out_of_range_edits_panic_before_touching_kv() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let (model, _) = setup();
+    let ctx = unified_ctx(&model);
+    let mut seq = ctx.sequence().unwrap();
+    let mut other = ctx.sequence().unwrap();
+    let tokens = story(&model);
+    seq.extend(&tokens).unwrap();
+    other.extend(&tokens[..2]).unwrap();
+
+    let n = tokens.len();
+    let remove = catch_unwind(AssertUnwindSafe(|| seq.remove(0..n + 5)));
+    assert!(remove.is_err());
+    assert_eq!(seq.len(), n);
+    assert_eq!(seq.pos_min(), 0);
+    assert_eq!(seq.pos_max(), n as i32 - 1);
+
+    let copy = catch_unwind(AssertUnwindSafe(|| seq.copy_to(&mut other, 0..n + 5)));
+    assert!(copy.is_err());
+    assert_eq!(other.len(), 2);
+    assert_eq!(other.pos_max(), 1);
+}
+
+#[test]
+fn push_after_sharing_another_sequences_cache() {
+    // Two streams with overlapping positions: a "document" in one sequence,
+    // shared into a shorter one with kv_copy. The next token has to go after
+    // the largest shared position, not after the shorter sequence's own tokens.
+    let (model, _) = setup();
+    let ctx = unified_ctx(&model);
+    let tokens = story(&model);
+    let mut doc = ctx.sequence().unwrap();
+    let mut q = ctx.sequence().unwrap();
+    doc.extend(&tokens).unwrap();
+    q.extend(&tokens[..3]).unwrap();
+
+    doc.kv_copy(&mut q, 0..tokens.len() as i32);
+    assert_eq!(q.next_pos(), tokens.len() as i32);
+    q.push(tokens[0]).unwrap();
+    assert_eq!(*q.positions().last().unwrap(), tokens.len() as i32);
+}
+
+#[test]
+fn kv_shift_updates_positions() {
+    let (model, params) = setup();
+    let ctx = Context::new(&model, &params).unwrap();
+    assert!(ctx.can_shift(), "test model should support shifting");
+    let mut seq = ctx.sequence().unwrap();
+    let tokens = story(&model);
+    let n = tokens.len() as i32;
+    seq.extend(&tokens).unwrap();
+
+    assert!(seq.remove(0..2));
+    seq.kv_shift(2..n, -2);
+    let expected: Vec<i32> = (0..n - 2).collect();
+    assert_eq!(seq.positions(), expected.as_slice());
+    assert_eq!(seq.next_pos(), n - 2);
+    seq.push(tokens[0]).unwrap();
+}
