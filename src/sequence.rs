@@ -10,7 +10,7 @@
 
 use std::ops::{Index, Range};
 
-use crate::{Context, Pos, Sampler, SeqId, Token};
+use crate::{Context, DecodeError, Pos, Sampler, SeqId, Token};
 
 /// One stream of tokens inside a [`Context`].
 ///
@@ -103,21 +103,38 @@ impl Sequence {
 
     /// Feed one token into the model and update [`logits`](Self::logits).
     ///
-    /// # Panics
-    ///
-    /// Panics if llama.cpp fails to decode (for example, the KV cache is full).
-    pub fn push(&mut self, token: Token) {
-        let pos = self.tokens.len() as Pos;
-        self.decode_at(token, pos);
-        self.tokens.push(token);
+    /// On error (for example, the KV cache is full) the token is not added.
+    pub fn push(&mut self, token: Token) -> Result<(), DecodeError> {
+        self.extend(&[token])
     }
 
-    /// Push each token in order. Equivalent to calling [`push`](Self::push) in
-    /// a loop.
-    pub fn extend(&mut self, tokens: &[Token]) {
-        for &token in tokens {
-            self.push(token);
+    /// Feed several tokens into the model and update [`logits`](Self::logits)
+    /// with the logits after the last one.
+    ///
+    /// This gives the same result as calling [`push`](Self::push) for each
+    /// token, but is much faster: the tokens are sent to llama.cpp in as few
+    /// batches as possible (up to `n_batch` tokens each) instead of one call
+    /// per token. Use it for prompts.
+    ///
+    /// Passing an empty slice does nothing.
+    ///
+    /// On error, tokens from batches that already succeeded stay in the
+    /// sequence (check [`len`](Self::len)), and the logits are cleared.
+    pub fn extend(&mut self, tokens: &[Token]) -> Result<(), DecodeError> {
+        if tokens.is_empty() {
+            return Ok(());
         }
+
+        let batch_size = self.ctx.inner().batch_size();
+        for chunk in tokens.chunks(batch_size) {
+            let start_pos = self.tokens.len() as Pos;
+            if let Err(e) = self.decode_chunk(chunk, start_pos) {
+                self.has_logits = false;
+                return Err(e);
+            }
+            self.tokens.extend_from_slice(chunk);
+        }
+        Ok(())
     }
 
     /// Recompute the logits for the last token without adding a new one.
@@ -125,34 +142,38 @@ impl Sequence {
     /// Useful after [`pop`](Self::pop), [`remove`](Self::remove) and friends,
     /// which clear the cached logits. Does nothing if the sequence is empty.
     ///
-    /// # Panics
-    ///
-    /// Panics if llama.cpp fails to decode.
-    pub fn decode(&mut self) {
+    /// On error the last token is removed from the sequence, because its KV
+    /// cache entry has already been dropped (see the comment inside).
+    pub fn decode(&mut self) -> Result<(), DecodeError> {
         let Some(&last) = self.tokens.last() else {
-            return;
+            return Ok(());
         };
         let pos = (self.tokens.len() - 1) as Pos;
         // llama.cpp only accepts a position that directly follows what's
         // already in the cache, so drop the old entry for the last token first
         // and then feed it in again.
         self.ctx.inner().seq_rm(self.id, pos, -1);
-        self.decode_at(last, pos);
+        if let Err(e) = self.decode_chunk(&[last], pos) {
+            // Keep `self.tokens` matching the KV cache.
+            self.tokens.pop();
+            self.has_logits = false;
+            return Err(e);
+        }
+        Ok(())
     }
 
-    /// Run one token through the model at `pos` and copy the resulting logits
-    /// into our buffer.
-    fn decode_at(&mut self, token: Token, pos: Pos) {
+    /// Run `tokens` through the model starting at `start_pos` and copy the
+    /// logits for the last one into our buffer. `tokens` must fit in one batch.
+    fn decode_chunk(&mut self, tokens: &[Token], start_pos: Pos) -> Result<(), DecodeError> {
         let mut inner = self.ctx.inner();
-        let logits = inner
-            .decode_one(token, pos, self.id)
-            .unwrap_or_else(|e| panic!("decode failed: {e:?}"));
+        let logits = inner.decode(tokens, start_pos, self.id)?;
 
         // Copy into our existing buffer. `clear` keeps the allocation, so after
         // the first push this never allocates.
         self.logits.clear();
         self.logits.extend_from_slice(logits);
         self.has_logits = true;
+        Ok(())
     }
 
     /// Get the next token by running `sampler` over the current logits.

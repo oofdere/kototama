@@ -29,7 +29,7 @@
 //! let ctx = Context::new(&model, &ContextParams::new()).unwrap();
 //! let mut seq = ctx.sequence().unwrap();
 //!
-//! seq.extend(&model.tokenize("Once upon a time", true, false));
+//! seq.extend(&model.tokenize("Once upon a time", true, false)).unwrap();
 //! let mut sampler = Greedy::new();
 //! for _ in 0..16 {
 //!     let token = seq.sample(&mut sampler).unwrap();
@@ -37,7 +37,7 @@
 //!         break;
 //!     }
 //!     print!("{}", model.token_to_piece(token).unwrap());
-//!     seq.push(token);
+//!     seq.push(token).unwrap();
 //! }
 //! ```
 //!

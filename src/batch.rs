@@ -50,6 +50,11 @@ impl Batch {
         }
     }
 
+    /// The most tokens this batch can hold.
+    pub(crate) fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     /// Number of tokens currently in the batch.
     pub(crate) fn len(&self) -> usize {
         self.raw.n_tokens as usize

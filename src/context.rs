@@ -112,6 +112,22 @@ pub enum DecodeError {
     FatalError,
 }
 
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            DecodeError::SlotNotFound => "no space left in the KV cache",
+            DecodeError::Aborted => "decode was aborted",
+            DecodeError::InvalidInput => "invalid batch passed to llama_decode",
+            DecodeError::FatalError => "llama_decode failed",
+        };
+        f.write_str(msg)
+    }
+}
+
+// Lets `DecodeError` be used with `?` in functions returning
+// `Result<_, Box<dyn std::error::Error>>`.
+impl std::error::Error for DecodeError {}
+
 // ---------------------------------------------------------------------------
 // Layer 1: ContextInner — owns the pointer, does the FFI
 // ---------------------------------------------------------------------------
@@ -126,8 +142,9 @@ pub(crate) struct ContextInner {
     /// The llama.cpp context. Freed in [`Drop`].
     ctx: *mut llama_context,
 
-    /// Reusable batch for decoding. Allocated once so that pushing a token
-    /// doesn't allocate.
+    /// Reusable batch for decoding. Allocated once, with room for `n_batch`
+    /// tokens (the most llama.cpp will accept in one `llama_decode` call), so
+    /// decoding never allocates.
     batch: Batch,
 
     /// Size of the vocabulary, which is also the length of a logits row.
@@ -153,11 +170,12 @@ impl ContextInner {
         }
 
         let n_seq_max = params.n_seq_max as usize;
+        // Ask the context rather than reading `params.n_batch`: llama.cpp may
+        // adjust the value we asked for.
+        let n_batch = unsafe { llama_n_batch(ctx) } as usize;
         Ok(Self {
             ctx,
-            // We only ever decode one token at a time for now, so a batch of
-            // size 1 is enough.
-            batch: Batch::new(1, n_seq_max),
+            batch: Batch::new(n_batch, n_seq_max),
             n_vocab: model.n_tokens() as usize,
             slots: vec![false; n_seq_max],
             _model: model.clone(),
@@ -192,23 +210,45 @@ impl ContextInner {
 
     // -- Decoding ----------------------------------------------------------
 
-    /// Run the model on a single token and return the logits it produced.
+    /// The most tokens [`decode`](Self::decode) accepts in one call.
+    pub(crate) fn batch_size(&self) -> usize {
+        self.batch.capacity()
+    }
+
+    /// Run the model on `tokens`, which go into sequence `seq_id` at positions
+    /// `start_pos`, `start_pos + 1`, ... and return the logits for the *last*
+    /// token.
+    ///
+    /// All the tokens are processed in a single `llama_decode` call, which is
+    /// much faster than one call per token. `tokens` must not be empty and
+    /// must be no longer than [`batch_size`](Self::batch_size); split longer
+    /// inputs into chunks first.
     ///
     /// The returned slice points straight into llama.cpp's own output buffer —
     /// nothing is copied. That buffer gets overwritten by the next decode, which
     /// is why the slice borrows `self`: the borrow checker won't let you decode
     /// again while you're still holding on to it. If you need the logits to
     /// stick around, copy them (that's what [`Sequence`] does).
-    pub(crate) fn decode_one(
+    pub(crate) fn decode(
         &mut self,
-        token: Token,
-        pos: Pos,
+        tokens: &[Token],
+        start_pos: Pos,
         seq_id: SeqId,
     ) -> Result<&[f32], DecodeError> {
+        if tokens.is_empty() {
+            return Err(DecodeError::InvalidInput);
+        }
+
         self.batch.clear();
-        self.batch
-            .add(token, pos, &[seq_id], true)
-            .map_err(|_| DecodeError::InvalidInput)?;
+        let last = tokens.len() - 1;
+        for (i, &token) in tokens.iter().enumerate() {
+            // Only ask for logits on the last token: that's the only one we
+            // return, and computing logits for every token would waste time.
+            let want_logits = i == last;
+            self.batch
+                .add(token, start_pos + i as Pos, &[seq_id], want_logits)
+                .map_err(|_| DecodeError::InvalidInput)?;
+        }
 
         match unsafe { llama_decode(self.ctx, self.batch.raw()) } {
             0 => {}
@@ -218,8 +258,9 @@ impl ContextInner {
             _ => return Err(DecodeError::FatalError),
         }
 
-        // Index 0 is the first (and only) token in the batch.
-        let ptr = unsafe { llama_get_logits_ith(self.ctx, 0) };
+        // `ith` is an index into the batch we just decoded, so `last` is the
+        // final token's row.
+        let ptr = unsafe { llama_get_logits_ith(self.ctx, last as i32) };
         if ptr.is_null() {
             return Err(DecodeError::FatalError);
         }
@@ -301,7 +342,7 @@ impl Drop for ContextInner {
 /// # let model = Model::load_from_file("model.gguf", ModelParams::new()).unwrap();
 /// let ctx = Context::new(&model, &ContextParams::new()).unwrap();
 /// let mut seq = ctx.sequence().expect("no free sequence slots");
-/// seq.extend(&model.tokenize("Once upon a time", true, false));
+/// seq.extend(&model.tokenize("Once upon a time", true, false)).unwrap();
 /// let logits = seq.logits().unwrap();
 /// ```
 #[derive(Clone)]

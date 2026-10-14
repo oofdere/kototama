@@ -184,6 +184,6 @@ fn context_outlives_dropped_model() {
     drop(model);
 
     let mut seq = ctx.sequence().unwrap();
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
     assert!(seq.logits().is_some());
 }
