@@ -54,7 +54,7 @@ fn get_add_bos() {
 fn get_score_bos() {
     let model = common::load_model();
     if let Some(bos) = model.bos_token() {
-        let score = model.get_score(bos);
+        let score = model.get_score(bos).expect("BOS is a valid token");
         assert!(score.is_finite());
     }
 }
@@ -63,8 +63,70 @@ fn get_score_bos() {
 fn get_text_bos_nonempty() {
     let model = common::load_model();
     if let Some(bos) = model.bos_token() {
-        let text = model.get_text(bos);
+        let text = model.get_text(bos).expect("BOS is a valid token");
         assert!(!text.to_bytes().is_empty());
+    }
+}
+
+#[test]
+fn get_text_out_of_range_is_none() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    // Pre-fix, these crossed the FFI boundary and reached `id_to_token.at(id)`,
+    // which throws std::out_of_range. The resulting C++ exception unwinding
+    // across the extern "C" boundary is UB (and aborts the process in practice).
+    assert!(model.get_text(-1).is_none());
+    assert!(model.get_text(i32::MIN).is_none());
+    assert!(model.get_text(n).is_none());
+    assert!(model.get_text(n + 1).is_none());
+    assert!(model.get_text(i32::MAX).is_none());
+}
+
+#[test]
+fn get_score_out_of_range_is_none() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(model.get_score(-1).is_none());
+    assert!(model.get_score(i32::MIN).is_none());
+    assert!(model.get_score(n).is_none());
+    assert!(model.get_score(n + 1).is_none());
+    assert!(model.get_score(i32::MAX).is_none());
+}
+
+#[test]
+fn get_attr_out_of_range_is_none() {
+    let model = common::load_model();
+    let n = model.n_tokens();
+    assert!(model.get_attr(-1).is_none());
+    assert!(model.get_attr(i32::MIN).is_none());
+    assert!(model.get_attr(n).is_none());
+    assert!(model.get_attr(n + 1).is_none());
+    assert!(model.get_attr(i32::MAX).is_none());
+}
+
+#[test]
+fn get_text_valid_token_still_calls_ffi() {
+    // Regression pin: the bounds check must not over-reject. BOS is a
+    // valid token, so None here would mean the valid path got short-circuited.
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        assert!(model.get_text(bos).is_some());
+    }
+}
+
+#[test]
+fn get_score_valid_token_still_calls_ffi() {
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        assert!(model.get_score(bos).is_some());
+    }
+}
+
+#[test]
+fn get_attr_valid_token_still_calls_ffi() {
+    let model = common::load_model();
+    if let Some(bos) = model.bos_token() {
+        assert!(model.get_attr(bos).is_some());
     }
 }
 

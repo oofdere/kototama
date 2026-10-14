@@ -43,22 +43,39 @@ impl Model {
         unsafe { llama_vocab_get_add_sep(self.vocab_ptr()) }
     }
 
+    // SAFETY: `llama_vocab_get_attr`, `llama_vocab_get_score` and
+    // `llama_vocab_get_text` reach `id_to_token.at(id)` in llama.cpp
+    // (see src/llama-vocab.cpp:3652/3657 and token_get_attr), which throws
+    // `std::out_of_range` for a negative or oversized token id. That C++
+    // exception unwinding across the `extern "C"` boundary is undefined
+    // behaviour, reachable from safe Rust. Gate each FFI call on an in-range
+    // id and return `None` otherwise.
+
     #[inline]
-    pub fn get_attr(&self, token: i32) -> llama_token_attr {
-        unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
+    pub fn get_attr(&self, token: i32) -> Option<llama_token_attr> {
+        if token < 0 || token >= self.n_tokens() {
+            return None;
+        }
+        Some(unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) })
     }
 
     #[inline]
-    pub fn get_score(&self, token: i32) -> f32 {
-        unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
+    pub fn get_score(&self, token: i32) -> Option<f32> {
+        if token < 0 || token >= self.n_tokens() {
+            return None;
+        }
+        Some(unsafe { llama_vocab_get_score(self.vocab_ptr(), token) })
     }
 
     #[inline]
-    pub fn get_text(&self, token: i32) -> &CStr {
-        unsafe {
+    pub fn get_text(&self, token: i32) -> Option<&CStr> {
+        if token < 0 || token >= self.n_tokens() {
+            return None;
+        }
+        Some(unsafe {
             let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
             CStr::from_ptr(ptr)
-        }
+        })
     }
 
     #[inline]
