@@ -22,18 +22,19 @@ fn main() {
 
     #[cfg(feature = "vulkan")]
     {
+        // The LunarG SDK sets VULKAN_SDK. On Linux the distro's Vulkan
+        // headers and glslc (shaderc) are enough, and llama.cpp's CMake finds
+        // them itself, so only add the include path when it's set.
         if let Ok(vulkan_sdk) = env::var("VULKAN_SDK") {
             config.cflag(&format!("-I{}/include", vulkan_sdk));
             config.cxxflag(&format!("-I{}/include", vulkan_sdk));
-        } else {
-            panic!("VULKAN_SDK not set, see llama.cpp docs for config info");
         }
         config.define("GGML_VULKAN", "ON");
     }
 
     #[cfg(feature = "cuda")]
     {
-        config.define("LLAMA_CUDA", "ON");
+        config.define("GGML_CUDA", "ON");
     }
 
     #[cfg(all(target_os = "macos"))]

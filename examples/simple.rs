@@ -57,16 +57,15 @@ fn main() {
         // n_ctx is the context size
         ctx_params.n_ctx = (n_prompt + n_predict as usize - 1) as u32;
         // n_batch is the maximum number of tokens that can be processed in a single call to llama_decode
-        // 1 is used here because the implementation currently only supports single-token decoding
-        ctx_params.n_batch = 1; // n_prompt as u32;
-                                // enable performance counters
+        ctx_params.n_batch = n_prompt as u32;
+        // enable performance counters
         ctx_params.no_perf = false;
     }
 
     let ctx = Context::new(&model, &ctx_params).expect("Failed to create context");
 
     let mut seq = ctx.sequence().expect("failed to acquire sequence");
-    seq.extend(&prompt_tokens);
+    seq.extend(&prompt_tokens).expect("decode failed");
 
     // Print the prompt token-by-token
     for token in &prompt_tokens {
@@ -89,7 +88,7 @@ fn main() {
         }
         print!("{}", model.token_to_piece(token as i32).unwrap());
         std::io::stdout().flush().ok();
-        seq.push(token as i32);
+        seq.push(token as i32).expect("decode failed");
     }
 
     println!();

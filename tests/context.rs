@@ -77,7 +77,7 @@ fn perf_does_not_crash() {
     let _ = ctx.perf();
 }
 
-// ---------- Context::clone() shares actor state ----------
+// ---------- Context::clone() shares state ----------
 
 #[test]
 fn context_clone_shares_free_slots() {
@@ -98,7 +98,7 @@ fn context_clone_slot_checkout_visible_on_original() {
     // Check out a sequence via the clone
     let _seq = ctx_clone.sequence().unwrap();
 
-    // The original handle should observe the reduced count (shared actor)
+    // The original handle should observe the reduced count (shared state)
     assert_eq!(ctx.free_slots(), total - 1);
 }
 
@@ -168,4 +168,22 @@ fn context_from_cloned_model_is_independent() {
         params.n_seq_max as usize,
         "second context should have full slots independent of first"
     );
+}
+
+// ---------- Context keeps the model alive ----------
+
+#[test]
+fn context_outlives_dropped_model() {
+    // Load a fresh model (not the shared test one) so dropping our handle
+    // really is the last user-visible reference to it.
+    let mut model_params = rusty_llama::ModelParams::new();
+    model_params.n_gpu_layers = 0;
+    let model = rusty_llama::Model::load_from_file(&common::model_path(), model_params).unwrap();
+    let tokens = model.tokenize("hello", false, false);
+    let ctx = Context::new(&model, &common::test_ctx_params()).unwrap();
+    drop(model);
+
+    let mut seq = ctx.sequence().unwrap();
+    seq.extend(&tokens).unwrap();
+    assert!(seq.logits().is_some());
 }

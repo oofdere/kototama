@@ -43,7 +43,7 @@ fn greedy_sample_matches_argmax() {
 
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("Once upon a time", true, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
 
     let mut argmax = 0i32;
     let mut best = f32::NEG_INFINITY;
@@ -70,7 +70,7 @@ fn sample_with_temperature_does_not_crash() {
 
     let mut seq = ctx.sequence().unwrap();
     let tokens = model.tokenize("hello", true, false);
-    seq.extend(&tokens);
+    seq.extend(&tokens).unwrap();
 
     let mut temp = Temperature::new(0.8);
     let mut dist = Dist::new(42);
@@ -91,8 +91,8 @@ fn two_sequences_independent() {
 
     let tokens_a = model.tokenize("hello", true, false);
     let tokens_b = model.tokenize("world", true, false);
-    seq_a.extend(&tokens_a);
-    seq_b.extend(&tokens_b);
+    seq_a.extend(&tokens_a).unwrap();
+    seq_b.extend(&tokens_b).unwrap();
 
     assert_eq!(seq_a.tokens(), tokens_a.as_slice());
     assert_eq!(seq_b.tokens(), tokens_b.as_slice());
@@ -126,7 +126,7 @@ fn greedy_generation_is_deterministic() {
         let ctx = Context::new(&model, &params).unwrap();
         let mut seq = ctx.sequence().unwrap();
         let prompt = model.tokenize("the", true, false);
-        seq.extend(&prompt);
+        seq.extend(&prompt).unwrap();
 
         let mut tokens = Vec::new();
         for _ in 0..5 {
@@ -142,7 +142,7 @@ fn greedy_generation_is_deterministic() {
                 break;
             }
             tokens.push(token);
-            seq.push(token);
+            seq.push(token).unwrap();
         }
         tokens
     };

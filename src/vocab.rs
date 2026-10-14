@@ -1,11 +1,18 @@
-use crate::*;
-use llama_sys::*;
+//! Vocabulary queries on [`Model`]: special tokens, token attributes, etc.
+//!
+//! These live in their own file just to keep `model.rs` short. They are all
+//! read-only lookups into the model's vocabulary.
+
 use std::ffi::CStr;
+
+use llama_sys::*;
+
+use crate::{Model, Token};
 
 macro_rules! token_option {
     ($name:ident, $ffi_fn:ident) => {
         #[inline]
-        pub fn $name(&self) -> Option<i32> {
+        pub fn $name(&self) -> Option<Token> {
             let token = unsafe { $ffi_fn(self.vocab_ptr()) };
             if token == LLAMA_TOKEN_NULL {
                 None
@@ -44,17 +51,17 @@ impl Model {
     }
 
     #[inline]
-    pub fn get_attr(&self, token: i32) -> llama_token_attr {
+    pub fn get_attr(&self, token: Token) -> llama_token_attr {
         unsafe { llama_vocab_get_attr(self.vocab_ptr(), token) }
     }
 
     #[inline]
-    pub fn get_score(&self, token: i32) -> f32 {
+    pub fn get_score(&self, token: Token) -> f32 {
         unsafe { llama_vocab_get_score(self.vocab_ptr(), token) }
     }
 
     #[inline]
-    pub fn get_text(&self, token: i32) -> &CStr {
+    pub fn get_text(&self, token: Token) -> &CStr {
         unsafe {
             let ptr = llama_vocab_get_text(self.vocab_ptr(), token);
             CStr::from_ptr(ptr)
@@ -62,12 +69,12 @@ impl Model {
     }
 
     #[inline]
-    pub fn is_control(&self, token: i32) -> bool {
+    pub fn is_control(&self, token: Token) -> bool {
         unsafe { llama_vocab_is_control(self.vocab_ptr(), token) }
     }
 
     #[inline]
-    pub fn is_eog(&self, token: i32) -> bool {
+    pub fn is_eog(&self, token: Token) -> bool {
         unsafe { llama_vocab_is_eog(self.vocab_ptr(), token) }
     }
 
